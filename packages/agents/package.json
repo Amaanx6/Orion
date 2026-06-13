@@ -1,0 +1,25 @@
+{
+  "name": "@repo/agents",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@octokit/auth-app": "^8.2.0",
+    "@octokit/rest": "^22.0.1",
+    "@repo/db": "workspace:*",
+    "@repo/realtime": "workspace:*",
+    "drizzle-orm": "^0.45.1",
+    "groq-sdk": "^1.1.2",
+    "lighthouse": "^12.0.0",
+    "playwright": "^1.44.0"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^22.15.3",
+    "typescript": "^6.0.2"
+  }
+}
