@@ -2,11 +2,8 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useTheme } from 'next-themes'
 
 import {
-  Moon,
-  Sun,
   Menu,
   X,
 } from 'lucide-react'
@@ -14,14 +11,8 @@ import {
 import { Button } from '@/components/ui/button'
 
 export function Navbar() {
-  const { theme, setTheme } = useTheme()
-
   const [mobileMenuOpen, setMobileMenuOpen] =
     useState(false)
-
-  const toggleTheme = () => {
-    setTheme(theme === 'dark' ? 'light' : 'dark')
-  }
 
   return (
     <nav className="sticky top-0 z-50 border-b border-slate-700/50 bg-slate-900/95 backdrop-blur-sm">
@@ -30,7 +21,7 @@ export function Navbar() {
           {/* Logo */}
           <Link
             href="/"
-            className="flex items-center gap-2 font-bold text-lg"
+            className="flex items-center gap-2 font-bold text-lg text-white"
           >
             <div className="w-8 h-8 bg-emerald-500 rounded-md flex items-center justify-center">
               <span className="text-white text-sm font-bold">
@@ -76,24 +67,6 @@ export function Navbar() {
 
           {/* Right Actions */}
           <div className="flex items-center gap-4">
-            {/* Theme Toggle */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleTheme}
-              className="text-slate-300 hover:text-white"
-            >
-              {theme === 'dark' ? (
-                <Sun className="h-5 w-5" />
-              ) : (
-                <Moon className="h-5 w-5" />
-              )}
-
-              <span className="sr-only">
-                Toggle theme
-              </span>
-            </Button>
-
             {/* Mobile Menu Button */}
             <Button
               variant="ghost"

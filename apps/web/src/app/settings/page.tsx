@@ -1,13 +1,10 @@
 'use client'
 
-import { useTheme } from 'next-themes'
 import { DashboardShell } from '@/components/shell/dashboard-shell'
 import { Button } from '@/components/ui/button'
-import { Moon, Sun, GitBranch } from 'lucide-react'
+import { Moon, GitBranch } from 'lucide-react'
 
 export default function SettingsPage() {
-  const { theme, setTheme } = useTheme()
-
   return (
     <DashboardShell>
       <div className="max-w-2xl space-y-8">
@@ -25,32 +22,14 @@ export default function SettingsPage() {
               <div>
                 <p className="font-medium text-white">Theme</p>
                 <p className="text-sm text-slate-400">
-                  Choose how Orion looks on your screen
+                  Orion uses a dark theme for optimal readability
                 </p>
               </div>
               <div className="flex gap-2">
                 <Button
-                  variant={theme === 'light' ? 'default' : 'outline'}
+                  variant="default"
                   size="sm"
-                  onClick={() => setTheme('light')}
-                  className={
-                    theme === 'light'
-                      ? 'bg-emerald-500 text-white'
-                      : 'border-slate-600'
-                  }
-                >
-                  <Sun className="h-4 w-4 mr-2" />
-                  Light
-                </Button>
-                <Button
-                  variant={theme === 'dark' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setTheme('dark')}
-                  className={
-                    theme === 'dark'
-                      ? 'bg-emerald-500 text-white'
-                      : 'border-slate-600'
-                  }
+                  className="bg-emerald-500 text-white cursor-default"
                 >
                   <Moon className="h-4 w-4 mr-2" />
                   Dark
