@@ -1,224 +1,254 @@
-"use client";
+'use client'
 
-import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { ThemeToggle } from "../_components/ThemeToggle";
-import { Target, LayoutDashboard, List, BookOpen, GitFork, Play } from "lucide-react";
-import { runsService } from "../../services/runs.service";
-import { Run } from "../../types/orion";
-import { RunsFilter, StatusFilter, ModeFilter, PFFilter } from "./_components/RunsFilter";
-import { RunsTable } from "./_components/RunsTable";
-import { NewRunModal } from "./_components/NewRunModal";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-
-const FontStyle = () => (
-  <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap');
-
-    *, *::before, *::after {
-      font-family: 'DM Sans', sans-serif;
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-    .bricolage { font-family: 'Bricolage Grotesque', sans-serif; }
-
-    .dot-grid {
-      background-image: radial-gradient(circle, #c7d7f0 1px, transparent 1px);
-      background-size: 24px 24px;
-    }
-
-    .row-hover:hover { background-color: var(--primary-bg-alt); cursor: pointer; }
-
-    .input-glow:focus {
-      outline: none;
-      box-shadow: 0 0 0 3px rgba(37,99,235,0.14);
-      border-color: var(--primary) !important;
-    }
-
-    ::-webkit-scrollbar { width: 5px; height: 5px; }
-    ::-webkit-scrollbar-track { background: #F8FAFF; }
-    ::-webkit-scrollbar-thumb { background: var(--primary-border); border-radius: 999px; }
-
-    .pill-btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      font-size: 12px; font-weight: 600;
-      padding: 5px 12px; border-radius: 999px;
-      transition: all 0.15s ease; cursor: pointer; border: none;
-      white-space: nowrap;
-    }
-    .pill-btn:hover { transform: translateY(-1px); }
-    .pill-active {
-      background: var(--primary); color: #fff;
-      box-shadow: 0 2px 10px rgba(37,99,235,0.28);
-    }
-    .pill-inactive {
-      background: var(--bg-muted); color: var(--text-muted);
-      border: 1px solid var(--border-muted);
-    }
-    .pill-inactive:hover { border-color: var(--primary-border-light); color: var(--primary-hover); }
-    
-    @keyframes ping {
-      75%, 100% { transform: scale(1.8); opacity: 0; }
-    }
-  `}</style>
-);
+import { useState } from 'react'
+import Link from 'next/link'
+import { DashboardShell } from '@/components/shell/dashboard-shell'
+import { Button } from '@/components/ui/button'
+import { useRuns } from '@/lib/hooks'
+import { formatDate, formatDuration, getStatusColor, getScoreColor, getScoreLabel, truncate } from '@/lib/utils'
+import { Loader2, Search, Filter, ExternalLink, AlertCircle } from 'lucide-react'
 
 export default function RunsPage() {
-  const pathname = usePathname();
-  
-  const [runs, setRuns] = useState<Run[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  
-  const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
-  const [modeFilter, setModeFilter] = useState<ModeFilter>("All");
-  const [passedFilter, setPassedFilter] = useState<PFFilter>("All");
-  
-  const [hasNext, setHasNext] = useState(false);
-  const [hasPrev, setHasPrev] = useState(false);
-  const [totalCount, setTotalCount] = useState(0);
+  const [search, setSearch] = useState('')
+  const [mode, setMode] = useState<'all' | 'manual' | 'ci'>('all')
+  const [status, setStatus] = useState<'all' | 'running' | 'completed' | 'failed'>('all')
+  const [page, setPage] = useState(1)
 
-  const [modalOpen, setModalOpen] = useState(false);
+  const params = {
+    page,
+    limit: 20,
+    ...(mode !== 'all' && { mode: mode as 'manual' | 'ci' }),
+    ...(status !== 'all' && { status }),
+    ...(search && { search }),
+  }
 
-  useEffect(() => {
-    let active = true;
-    
-    const fetchRuns = async () => {
-      setIsLoading(true);
-      setError(null);
-      
-      try {
-        const queryParams: any = { page, limit: 20, order: 'desc' };
-        
-        if (statusFilter !== "All") queryParams.status = statusFilter.toLowerCase();
-        if (modeFilter !== "All") queryParams.mode = modeFilter.toLowerCase();
-        if (passedFilter !== "All") queryParams.passed = passedFilter === "Passed";
-        
-        const res = await runsService.getRuns(queryParams);
-        
-        if (active) {
-            setRuns(res.data || []);
-            setHasNext(res.hasNext || false);
-            setHasPrev(res.hasPrev || false);
-            setTotalCount(res.total || 0);
-        }
-      } catch (err: any) {
-        if (active) {
-            setError(err.message || "Failed to fetch runs. Please try again later.");
-        }
-      } finally {
-        if (active) setIsLoading(false);
-      }
-    };
-    
-    fetchRuns();
-    return () => { active = false; };
-  }, [page, statusFilter, modeFilter, passedFilter]);
+  const { data, isLoading, error, refetch } = useRuns(params)
 
-  // Handlers for filters (reset page on change)
-  const handleStatusChange = (s: StatusFilter) => { setStatusFilter(s); setPage(1); };
-  const handleModeChange = (m: ModeFilter) => { setModeFilter(m); setPage(1); };
-  const handlePassedChange = (p: PFFilter) => { setPassedFilter(p); setPage(1); };
+  const runs = data?.data || []
+  const total = data?.total || 0
+  const hasMore = data?.hasMore || false
 
   return (
-    <>
-      <FontStyle />
+    <DashboardShell>
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold text-white">Audit Runs</h1>
+          <p className="text-slate-400">View all manual and automated quality audits</p>
+        </div>
 
-      <div style={{ minHeight: "100vh", background: "var(--bg-body)" }}>
-        {/* NAV */}
-        <nav
-          style={{
-            position: "sticky", top: 0, zIndex: 100,
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "0 24px", height: 56,
-            background: "rgba(255,255,255,0.88)",
-            backdropFilter: "blur(18px)",
-            WebkitBackdropFilter: "blur(18px)",
-            borderBottom: "1px solid var(--border-subtle)",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 10, background: "var(--primary)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Target size={15} style={{ color: "var(--text-inverse)" }} />
-            </div>
-            <span className="bricolage" style={{ fontWeight: 800, fontSize: 19, color: "var(--text-main)", letterSpacing: "-0.02em" }}>
-              Orion
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "var(--primary-bg)", color: "var(--primary-light)", border: "1px solid var(--primary-border)", marginLeft: 2 }}>
-              Beta
-            </span>
+        {/* Filters */}
+        <div className="space-y-4">
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-500" />
+            <input
+              type="text"
+              placeholder="Search by URL or run ID..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value)
+                setPage(1)
+              }}
+              className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-700 bg-slate-900/50 text-white placeholder-slate-500 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+            />
           </div>
 
-          <ThemeToggle />
-        </nav>
-
-        {/* MAIN CONTENT */}
-        <div style={{ maxWidth: 1536, margin: "0 auto", padding: "32px 20px 64px" }}>
-
-          {/* PAGE HEADER */}
-          <motion.div
-            style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28, gap: 16, flexWrap: "wrap" }}
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <div>
-              <h1 className="bricolage" style={{ fontSize: 32, fontWeight: 800, color: "var(--text-main)", letterSpacing: "-0.02em", marginBottom: 4 }}>
-                All Runs
-              </h1>
-              <p style={{ fontSize: 14, color: "var(--text-dim)", fontWeight: 500 }}>
-                Every audit run across all your sites —&nbsp;
-                <span style={{ color: "var(--primary)", fontWeight: 700 }}>{totalCount} total</span>
-              </p>
+          {/* Filter Buttons */}
+          <div className="flex flex-wrap gap-3">
+            <div className="flex gap-2">
+              <label className="text-sm text-slate-400 flex items-center">Mode:</label>
+              {(['all', 'manual', 'ci'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => {
+                    setMode(m)
+                    setPage(1)
+                  }}
+                  className={`px-3 py-1 rounded-md text-sm font-medium transition-all ${
+                    mode === m
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                      : 'bg-slate-900/50 text-slate-400 border border-slate-700/50 hover:border-slate-600'
+                  }`}
+                >
+                  {m === 'all' ? 'All' : m === 'manual' ? 'Manual' : 'CI'}
+                </button>
+              ))}
             </div>
 
-            <motion.button
-              onClick={() => setModalOpen(true)}
-              whileHover={{ scale: 1.02, boxShadow: "0 4px 20px rgba(37,99,235,0.35)" }}
-              whileTap={{ scale: 0.97 }}
-              style={{
-                display: "flex", alignItems: "center", gap: 8,
-                background: "var(--primary)", color: "var(--text-inverse)",
-                fontWeight: 700, fontSize: 14,
-                padding: "11px 22px", borderRadius: 14,
-                border: "none", cursor: "pointer",
-                boxShadow: "0 2px 12px rgba(37,99,235,0.3)",
-                transition: "background 0.15s",
-              }}
-            >
-              <Play size={14} style={{ fill: "#fff" }} /> New Run
-            </motion.button>
-          </motion.div>
-
-          <RunsFilter
-            statusFilter={statusFilter}
-            modeFilter={modeFilter}
-            passedFilter={passedFilter}
-            onStatusChange={handleStatusChange}
-            onModeChange={handleModeChange}
-            onPassedChange={handlePassedChange}
-            totalCount={totalCount}
-          />
-
-          <RunsTable
-            runs={runs}
-            isLoading={isLoading}
-            error={error}
-            onNewRun={() => setModalOpen(true)}
-            page={page}
-            hasNext={hasNext}
-            hasPrev={hasPrev}
-            onNextPage={() => setPage((p) => p + 1)}
-            onPrevPage={() => setPage((p) => Math.max(1, p - 1))}
-            totalCount={totalCount}
-          />
+            <div className="flex gap-2">
+              <label className="text-sm text-slate-400 flex items-center">Status:</label>
+              {(['all', 'running', 'completed', 'failed'] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => {
+                    setStatus(s)
+                    setPage(1)
+                  }}
+                  className={`px-3 py-1 rounded-md text-sm font-medium transition-all ${
+                    status === s
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                      : 'bg-slate-900/50 text-slate-400 border border-slate-700/50 hover:border-slate-600'
+                  }`}
+                >
+                  {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
+
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+          </div>
+        )}
+
+        {/* Error State */}
+        {error && !isLoading && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0" />
+              <div>
+                <p className="font-medium text-red-300">Failed to load runs</p>
+                <p className="text-sm text-red-200 mt-1">
+                  {(error as any).message || 'Please try again or check your connection.'}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => refetch()}
+                className="ml-auto"
+              >
+                Retry
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!isLoading && !error && runs.length === 0 && (
+          <div className="text-center py-12">
+            <div className="inline-block p-3 rounded-lg bg-slate-900/50 border border-slate-700/50 mb-4">
+              <Filter className="h-8 w-8 text-slate-500" />
+            </div>
+            <h3 className="text-lg font-semibold text-white mb-2">No runs found</h3>
+            <p className="text-slate-400 mb-6">
+              {search || mode !== 'all' || status !== 'all'
+                ? 'Try adjusting your filters'
+                : 'Start with a manual audit or install on GitHub'}
+            </p>
+            <Link href="/manual">
+              <Button>Start Manual Audit</Button>
+            </Link>
+          </div>
+        )}
+
+        {/* Runs Table */}
+        {!isLoading && !error && runs.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-700/50">
+                  <th className="px-4 py-3 text-left font-semibold text-slate-300">URL</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-300">Mode</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-300">Status</th>
+                  <th className="px-4 py-3 text-center font-semibold text-slate-300">Score</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-300">Duration</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-300">Created</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-300">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {runs.map((run) => (
+                  <tr
+                    key={run.id}
+                    className="border-b border-slate-700/30 hover:bg-slate-900/50 transition-colors"
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-slate-500">{run.id.slice(0, 8)}</span>
+                        <span className="text-slate-300 truncate max-w-xs" title={run.url}>
+                          {truncate(run.url, 40)}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-block px-2 py-1 rounded-md text-xs font-medium bg-slate-900/50 text-slate-300 border border-slate-700/50">
+                        {run.mode === 'manual' ? 'Manual' : 'CI'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-block px-2 py-1 rounded-md text-xs font-medium border ${getStatusColor(run.status)}`}>
+                        {run.status.charAt(0).toUpperCase() + run.status.slice(1)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {run.status === 'completed' && run.score !== undefined ? (
+                        <div>
+                          <span className={`font-semibold ${getScoreColor(run.score)}`}>
+                            {Math.round(run.score)}
+                          </span>
+                          <span className="text-xs text-slate-500 ml-1">
+                            ({getScoreLabel(run.score)})
+                          </span>
+                        </div>
+                      ) : run.status === 'running' ? (
+                        <span className="text-slate-500 text-xs">Running...</span>
+                      ) : (
+                        <span className="text-slate-500 text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-400">
+                      {run.duration && run.status === 'completed'
+                        ? formatDuration(run.duration)
+                        : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-slate-400">
+                      {formatDate(run.createdAt)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Link href={`/runs/${run.id}`}>
+                        <Button size="sm" variant="ghost" className="text-emerald-400 hover:text-emerald-300">
+                          <ExternalLink className="h-4 w-4" />
+                          <span className="sr-only">View run details</span>
+                        </Button>
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {!isLoading && !error && runs.length > 0 && (
+          <div className="flex items-center justify-between pt-6">
+            <div className="text-sm text-slate-400">
+              Showing {(page - 1) * 20 + 1} to {Math.min(page * 20, total)} of {total} runs
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                disabled={page === 1}
+                onClick={() => setPage(Math.max(1, page - 1))}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                disabled={!hasMore}
+                onClick={() => setPage(page + 1)}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
-      
-      <NewRunModal isOpen={modalOpen} onClose={() => setModalOpen(false)} />
-    </>
-  );
+    </DashboardShell>
+  )
 }
