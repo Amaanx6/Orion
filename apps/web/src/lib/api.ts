@@ -39,7 +39,6 @@ export class ApiError extends Error {
 
 // Runs API
 export const runsApi = {
-  // Create a new run
   async createRun(payload: CreateRunRequest): Promise<Run> {
     try {
       const { data } = await axiosInstance.post<Run>('/runs', payload)
@@ -49,7 +48,6 @@ export const runsApi = {
     }
   },
 
-  // Get paginated runs
   async getRuns(params?: {
     page?: number
     limit?: number
@@ -68,7 +66,6 @@ export const runsApi = {
     }
   },
 
-  // Get single run with findings and pipeline stages
   async getRunDetail(runId: string): Promise<Run> {
     try {
       const { data } = await axiosInstance.get<Run>(`/runs/${runId}`)
@@ -78,7 +75,6 @@ export const runsApi = {
     }
   },
 
-  // Get run logs (if separated endpoint)
   async getRunLogs(runId: string): Promise<{ logs: string }> {
     try {
       const { data } = await axiosInstance.get<{ logs: string }>(
@@ -93,7 +89,6 @@ export const runsApi = {
 
 // Repos API
 export const reposApi = {
-  // Get all connected repos
   async getRepos(): Promise<ConnectedRepo[]> {
     try {
       const { data } = await axiosInstance.get<ConnectedRepo[]>('/repos')
@@ -103,7 +98,6 @@ export const reposApi = {
     }
   },
 
-  // Create/register a new repo (from GitHub install)
   async createRepo(payload: {
     installationId: string
     repositories?: Array<{ name: string; owner: string }>
@@ -119,7 +113,6 @@ export const reposApi = {
     }
   },
 
-  // Get single repo with recent runs
   async getRepoDetail(repoId: string): Promise<RepoDetail> {
     try {
       const { data } = await axiosInstance.get<RepoDetail>(`/repos/${repoId}`)
@@ -129,7 +122,6 @@ export const reposApi = {
     }
   },
 
-  // Update repo configuration
   async updateRepo(
     repoId: string,
     payload: UpdateRepoRequest
@@ -145,7 +137,6 @@ export const reposApi = {
     }
   },
 
-  // Delete/disconnect repo
   async deleteRepo(repoId: string): Promise<void> {
     try {
       await axiosInstance.delete(`/repos/${repoId}`)
@@ -154,7 +145,6 @@ export const reposApi = {
     }
   },
 
-  // Test run for repo (creates run against staging URL)
   async testRepo(repoId: string): Promise<Run> {
     try {
       const { data } = await axiosInstance.post<Run>(`/repos/${repoId}/test`)
@@ -167,7 +157,6 @@ export const reposApi = {
 
 // Findings API
 export const findingsApi = {
-  // Get single finding detail
   async getFinding(findingId: string): Promise<any> {
     try {
       const { data } = await axiosInstance.get(`/findings/${findingId}`)
@@ -177,7 +166,6 @@ export const findingsApi = {
     }
   },
 
-  // Create fix PR for a finding
   async createFixPR(payload: CreateFixPRRequest): Promise<CreateFixPRResponse> {
     try {
       const { data } = await axiosInstance.post<CreateFixPRResponse>(
@@ -193,21 +181,33 @@ export const findingsApi = {
 
 // GitHub / Webhooks API
 export const githubApi = {
-  // Get GitHub App installation status
   async getInstallationStatus(): Promise<{ installed: boolean; appUrl: string }> {
     try {
-      const { data } = await axiosInstance.get(
-        '/github/installation-status'
-      )
+      const { data } = await axiosInstance.get('/github/installation-status')
       return data
     } catch (error) {
       throw handleApiError(error)
     }
   },
 
-  // Get GitHub App install URL
   getInstallUrl(): string {
     return `https://github.com/apps/orion-qa/installations/new`
+  },
+
+  // Exchange GitHub OAuth callback code and installation ID for connected repos
+  async exchangeCallback(
+    code: string,
+    installationId: string
+  ): Promise<{ repos: ConnectedRepo[]; success: boolean }> {
+    try {
+      const { data } = await axiosInstance.post('/github/callback', {
+        code,
+        installation_id: installationId,
+      })
+      return data
+    } catch (error) {
+      throw handleApiError(error)
+    }
   },
 }
 
@@ -229,7 +229,6 @@ function handleApiError(error: any): ApiError {
     const status = error.response?.status || 500
     let message = error.response?.data?.message || error.message
 
-    // Friendly error messages
     if (status === 404) {
       message = 'Resource not found. It may have been deleted.'
     } else if (status === 401) {
@@ -246,11 +245,7 @@ function handleApiError(error: any): ApiError {
     return new ApiError(status, message, error)
   }
 
-  return new ApiError(
-    500,
-    'An unexpected error occurred',
-    undefined
-  )
+  return new ApiError(500, 'An unexpected error occurred', undefined)
 }
 
 export default axiosInstance

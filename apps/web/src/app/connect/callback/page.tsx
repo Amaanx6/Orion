@@ -1,257 +1,312 @@
-//connect/callback/page.tsx
-"use client";
+"use client"
 
-import { useState, useEffect, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, Globe, GitBranch, AlertCircle, ChevronRight, LayoutDashboard, Search } from "lucide-react";
-import Link from "next/link";
-import { reposService } from "../../../services/repos.service";
-import { Repo } from "../../../types/orion";
+import { useState, useEffect, Suspense, useCallback } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
+import { motion, AnimatePresence } from "framer-motion"
+import {
+  CheckCircle2,
+  Globe,
+  GitBranch,
+  AlertCircle,
+  ChevronRight,
+  LayoutDashboard,
+  Search,
+} from "lucide-react"
+import Link from "next/link"
+import { reposApi } from "@/lib/api"
+import type { ConnectedRepo } from "@/lib/types"
 
-const FontStyle = () => (
-  <style>{`
-    @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap');
-    *, *::before, *::after { font-family: 'DM Sans', sans-serif; box-sizing: border-box; margin: 0; padding: 0; }
-    .bricolage { font-family: 'Bricolage Grotesque', sans-serif; }
-
-    .input-glow:focus {
-      outline: none;
-      box-shadow: 0 0 0 3px rgba(37,99,235,0.14);
-      border-color: var(--primary) !important;
-    }
-
-    .btn-hover { transition: all 0.14s ease; cursor: pointer; }
-    .btn-hover:hover { transform: translateY(-1px); }
-    .btn-hover:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-  `}</style>
-);
-
+// ──────────────────────────────────────────────────────────
+// Stepper — 3-step progress indicator
+// ──────────────────────────────────────────────────────────
 function Stepper({ step }: { step: 2 | 3 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 36, position: "relative" }}>
+    <div className="flex items-center justify-between mb-9 relative">
       {/* Background line */}
-      <div style={{ position: "absolute", top: 12, left: 24, right: 24, height: 2, background: "var(--border-light)", zIndex: 0 }} />
-      {/* Active line fill */}
-      <motion.div 
+      <div className="absolute top-3 left-6 right-6 h-0.5 bg-[#E1E2EC] z-0" />
+      {/* Active fill */}
+      <motion.div
         initial={{ width: "0%" }}
         animate={{ width: step === 3 ? "100%" : "50%" }}
         transition={{ duration: 0.5, ease: "easeInOut" }}
-        style={{ position: "absolute", top: 12, left: 24, right: 24, height: 2, background: "var(--primary-light)", zIndex: 1, originX: 0 }} 
+        className="absolute top-3 left-6 h-0.5 bg-[#0969DA] z-10 origin-left"
       />
 
-      {/* Step 1 */}
-      <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: "var(--bg-card)", padding: "0 8px" }}>
-        <div style={{ width: 26, height: 26, borderRadius: "50%", background: "var(--success)", color: "var(--text-inverse)", display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #fff", boxShadow: "0 0 0 2px #A7F3D0" }}>
+      {/* Step 1 — Connected */}
+      <div className="relative z-20 flex flex-col items-center gap-2 bg-white px-2">
+        <div className="w-[26px] h-[26px] rounded-full bg-[#1A7F37] text-white flex items-center justify-center border-2 border-white shadow-[0_0_0_2px_#A7F3D0]">
           <CheckCircle2 size={14} />
         </div>
-        <span style={{ fontSize: 11, fontWeight: 700, color: "var(--success-dark)" }}>Connected</span>
+        <span className="text-[11px] font-bold text-[#1A7F37]">Connected</span>
       </div>
 
-      {/* Step 2 */}
-      <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: "var(--bg-card)", padding: "0 8px" }}>
-        <div style={{ 
-          width: 26, height: 26, borderRadius: "50%", 
-          background: step === 3 ? "var(--success)" : "var(--primary-bg)", 
-          color: step === 3 ? "#fff" : "var(--primary)", 
-          display: "flex", alignItems: "center", justifyContent: "center", 
-          border: "2px solid #fff", 
-          boxShadow: step === 3 ? "0 0 0 2px #A7F3D0" : "0 0 0 3px var(--primary-border)",
-          transition: "all 0.3s"
-        }}>
-          {step === 3 ? <CheckCircle2 size={14} /> : <span style={{ fontSize: 12, fontWeight: 800 }}>2</span>}
+      {/* Step 2 — Configure */}
+      <div className="relative z-20 flex flex-col items-center gap-2 bg-white px-2">
+        <div
+          className={`w-[26px] h-[26px] rounded-full flex items-center justify-center border-2 border-white transition-all duration-300 ${
+            step === 3
+              ? "bg-[#1A7F37] text-white shadow-[0_0_0_2px_#A7F3D0]"
+              : "bg-[#F0F6FC] text-[#0969DA] shadow-[0_0_0_3px_#C2DBF5]"
+          }`}
+        >
+          {step === 3 ? <CheckCircle2 size={14} /> : <span className="text-xs font-extrabold">2</span>}
         </div>
-        <span style={{ fontSize: 11, fontWeight: 700, color: step === 3 ? "var(--success-dark)" : "var(--primary-hover)" }}>Configure</span>
+        <span className={`text-[11px] font-bold ${step === 3 ? "text-[#1A7F37]" : "text-[#0969DA]"}`}>
+          Configure
+        </span>
       </div>
 
-      {/* Step 3 */}
-      <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, background: "var(--bg-card)", padding: "0 8px" }}>
-        <div style={{ 
-          width: 26, height: 26, borderRadius: "50%", 
-          background: step === 3 ? "var(--primary-bg)" : "var(--bg-muted)", 
-          color: step === 3 ? "var(--primary)" : "var(--text-dim)", 
-          display: "flex", alignItems: "center", justifyContent: "center", 
-          border: "2px solid #fff", 
-          boxShadow: step === 3 ? "0 0 0 3px var(--primary-border)" : "0 0 0 2px var(--border-muted)",
-          transition: "all 0.3s"
-        }}>
-          <span style={{ fontSize: 12, fontWeight: 800 }}>3</span>
+      {/* Step 3 — Done */}
+      <div className="relative z-20 flex flex-col items-center gap-2 bg-white px-2">
+        <div
+          className={`w-[26px] h-[26px] rounded-full flex items-center justify-center border-2 border-white transition-all duration-300 ${
+            step === 3
+              ? "bg-[#F0F6FC] text-[#0969DA] shadow-[0_0_0_3px_#C2DBF5]"
+              : "bg-[#F6F8FA] text-[#8B949E] shadow-[0_0_0_2px_#D0D7DE]"
+          }`}
+        >
+          <span className="text-xs font-extrabold">3</span>
         </div>
-        <span style={{ fontSize: 11, fontWeight: 700, color: step === 3 ? "var(--primary-hover)" : "var(--text-dim)" }}>Done</span>
+        <span className={`text-[11px] font-bold ${step === 3 ? "text-[#0969DA]" : "text-[#8B949E]"}`}>
+          Done
+        </span>
       </div>
     </div>
-  );
+  )
 }
 
+// ──────────────────────────────────────────────────────────
+// Inner component (uses useSearchParams)
+// ──────────────────────────────────────────────────────────
 function ConnectCallbackInner() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  
-  const [isLoadingRepo, setIsLoadingRepo] = useState(true);
-  const [repo, setRepo] = useState<Repo | null>(null);
-  
-  const [stagingUrl, setStagingUrl] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [isSuccess, setIsSuccess] = useState(false);
+  const searchParams = useSearchParams()
+  const router = useRouter()
 
+  const [isLoadingRepo, setIsLoadingRepo] = useState(true)
+  const [repo, setRepo] = useState<ConnectedRepo | null>(null)
+  const [stagingUrl, setStagingUrl] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [isSuccess, setIsSuccess] = useState(false)
+  const [fetchError, setFetchError] = useState(false)
+
+  // Fetch repos and match by installation_id
   useEffect(() => {
-    let active = true;
+    let active = true
     const fetchMatchedRepo = async () => {
-      const installationId = searchParams.get("installation_id");
+      const installationId = searchParams.get("installation_id")
       if (!installationId) {
-        if (active) setIsLoadingRepo(false);
-        return;
+        if (active) {
+          setIsLoadingRepo(false)
+          setFetchError(true)
+        }
+        return
       }
 
       try {
-        const reposList = await reposService.getRepos();
+        const reposList = await reposApi.getRepos()
         if (active) {
-          const matched = reposList.find((r: Repo) => String(r.installationId) === String(installationId));
+          const matched = reposList.find(
+            (r: ConnectedRepo) => String(r.installationId) === String(installationId)
+          )
           if (matched) {
-            setRepo(matched);
-            setStagingUrl(matched.stagingUrl || "");
+            setRepo(matched)
+            setStagingUrl(matched.stagingUrl || "")
+          } else {
+            setFetchError(true)
           }
         }
       } catch (err) {
-        console.error("Failed to fetch repos for match:", err);
+        console.error("Failed to fetch repos for match:", err)
+        if (active) setFetchError(true)
       } finally {
-        if (active) setIsLoadingRepo(false);
+        if (active) setIsLoadingRepo(false)
       }
-    };
-    fetchMatchedRepo();
-    return () => { active = false; };
-  }, [searchParams]);
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!repo || !stagingUrl.trim()) return;
-
-    try {
-      setIsSaving(true);
-      setSaveError(null);
-      await reposService.updateStagingUrl(repo.id, stagingUrl.trim());
-      setIsSuccess(true);
-    } catch (err: any) {
-      setSaveError(err.message || "Failed to update staging URL. Please try again.");
-    } finally {
-      setIsSaving(false);
     }
-  };
+    fetchMatchedRepo()
+    return () => {
+      active = false
+    }
+  }, [searchParams])
+
+  const handleSave = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
+      if (!repo || !stagingUrl.trim()) return
+
+      try {
+        setIsSaving(true)
+        setSaveError(null)
+        await reposApi.updateRepo(repo.id, { stagingUrl: stagingUrl.trim() })
+        setIsSuccess(true)
+      } catch (err: any) {
+        setSaveError(err?.message || "Failed to update staging URL. Please try again.")
+      } finally {
+        setIsSaving(false)
+      }
+    },
+    [repo, stagingUrl]
+  )
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-body)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
-      <FontStyle />
-
+    <div className="min-h-screen bg-[#FAFBFC] flex items-center justify-center p-6">
       <motion.div
         initial={{ opacity: 0, scale: 0.98, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-        style={{
-          width: "100%", maxWidth: 480,
-          background: "var(--bg-card)", borderRadius: 24,
-          border: "1.5px solid var(--border-subtle)",
-          boxShadow: "0 8px 32px rgba(15,23,42,0.04)",
-          padding: "36px 40px", position: "relative",
-          overflow: "hidden"
-        }}
+        className="w-full max-w-[480px] bg-white rounded-3xl border border-[#F0F2F5] shadow-[0_8px_32px_rgba(15,23,42,0.04)] p-9 md:p-10 relative overflow-hidden"
       >
         <AnimatePresence mode="wait">
-          {isLoadingRepo ? (
+          {/* ── Loading State ── */}
+          {isLoadingRepo && (
             <motion.div
               key="loading"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "40px 0" }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col items-center gap-4 py-10"
             >
-              <div style={{ width: 44, height: 44, borderRadius: 12, background: "var(--primary-bg)", display: "flex", alignItems: "center", justifyContent: "center", border: "1.5px solid var(--primary-border)" }}>
-                <div style={{ width: 20, height: 20, border: "3px solid var(--primary-border-light)", borderTopColor: "var(--primary)", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+              <div className="w-11 h-11 rounded-xl bg-[#F0F6FC] border border-[#C2DBF5] flex items-center justify-center">
+                <div className="w-5 h-5 border-[3px] border-[#C2DBF5] border-t-[#0969DA] rounded-full animate-spin" />
               </div>
-              <style>{`@keyframes spin { 100% { transform: rotate(360deg); } }`}</style>
-              <div style={{ textAlign: "center" }}>
-                <h2 className="bricolage" style={{ fontSize: 18, fontWeight: 700, color: "var(--text-main)", marginBottom: 4 }}>Connecting your repo...</h2>
-                <p style={{ fontSize: 13, color: "var(--text-muted)" }}>Fetching installation details from GitHub.</p>
+              <div className="text-center">
+                <h2 className="bricolage font-bold text-lg text-[#1F2328] mb-1">
+                  Connecting your repo...
+                </h2>
+                <p className="text-[13px] text-[#656D76]">
+                  Fetching installation details from GitHub.
+                </p>
               </div>
             </motion.div>
-          ) : !repo ? (
+          )}
+
+          {/* ── Error / Not Found ── */}
+          {!isLoadingRepo && (fetchError || !repo) && (
             <motion.div
               key="error"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "20px 0", textAlign: "center" }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col items-center gap-4 py-5 text-center"
             >
-              <div style={{ width: 64, height: 64, borderRadius: "50%", background: "var(--danger-bg)", color: "var(--danger)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8, border: "4px solid #FEE2E2" }}>
+              <div className="w-16 h-16 rounded-full bg-[#FFEBE9] text-[#CF222E] flex items-center justify-center mb-2 border-4 border-[#FEE2E2]">
                 <AlertCircle size={32} />
               </div>
-              <div>
-                <h1 className="bricolage" style={{ fontSize: 24, fontWeight: 800, color: "var(--text-main)", letterSpacing: "-0.02em", marginBottom: 6 }}>Something went wrong</h1>
-                <p style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6 }}>We couldn't find your connected repo. The link might be invalid or the app may not have been fully installed.</p>
-              </div>
-              <Link href="/repos" className="btn-hover" style={{ marginTop: 12, display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", borderRadius: 12, background: "var(--bg-muted)", border: "1.5px solid var(--border-muted)", color: "#475569", fontWeight: 700, fontSize: 14, textDecoration: "none" }}>
-                Go to Repos <ChevronRight size={14} />
+              <h1 className="bricolage font-extrabold text-2xl text-[#1F2328] tracking-tight mb-1">
+                Something went wrong
+              </h1>
+              <p className="text-sm text-[#656D76] leading-relaxed">
+                We couldn&apos;t find your connected repo. The link might be invalid or the app may
+                not have been fully installed.
+              </p>
+              <Link
+                href="/repos"
+                className="mt-3 inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#F0F2F5] border border-[#D0D7DE] text-[#1F2328] font-bold text-sm hover:bg-[#E2E8F0] transition-colors no-underline"
+              >
+                Go to Repos
+                <ChevronRight size={14} />
               </Link>
             </motion.div>
-          ) : isSuccess ? (
+          )}
+
+          {/* ── Success State ── */}
+          {!isLoadingRepo && repo && isSuccess && (
             <motion.div
               key="success"
-              initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
               transition={{ duration: 0.4 }}
-              style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}
+              className="flex flex-col items-center text-center"
             >
               <Stepper step={3} />
-              <div style={{ position: "relative", marginBottom: 20 }}>
-                <motion.div 
-                  initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 200, damping: 15 }}
-                  style={{ width: 80, height: 80, borderRadius: "50%", background: "var(--success-bg)", color: "var(--success)", display: "flex", alignItems: "center", justifyContent: "center", border: "5px solid #A7F3D0" }}
+
+              <div className="relative mb-5">
+                <motion.div
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: "spring", stiffness: 200, damping: 15 }}
+                  className="w-20 h-20 rounded-full bg-[#E6F4EA] text-[#1A7F37] flex items-center justify-center border-[5px] border-[#A7F3D0]"
                 >
                   <CheckCircle2 size={36} strokeWidth={2.5} />
                 </motion.div>
-                <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#34D399", opacity: 0.2, animation: "ping 2s cubic-bezier(0,0,0.2,1) infinite" }} />
               </div>
-              <h1 className="bricolage" style={{ fontSize: 28, fontWeight: 800, color: "var(--text-main)", letterSpacing: "-0.02em", marginBottom: 8 }}>You're all set!</h1>
-              <p style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6, marginBottom: 32, maxWidth: 320 }}>
-                We're ready to start auditing your repository for potential vulnerabilities and performance regressions.
+
+              <h1 className="bricolage font-extrabold text-[28px] text-[#1F2328] tracking-tight mb-2">
+                You&apos;re all set!
+              </h1>
+              <p className="text-sm text-[#656D76] leading-relaxed mb-8 max-w-[320px]">
+                We&apos;re ready to start auditing your repository for quality regressions.
               </p>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
-                <Link href={`/repos/${repo.id}`} className="btn-hover" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "14px 20px", borderRadius: 12, background: "var(--primary)", border: "none", color: "var(--text-inverse)", fontWeight: 700, fontSize: 14, textDecoration: "none", width: "100%", boxShadow: "0 2px 12px rgba(37,99,235,0.28)" }}>
-                  <Search size={16} /> View Repo Details
+              <div className="flex flex-col gap-3 w-full">
+                <Link
+                  href={`/repos/${repo.id}`}
+                  className="flex items-center justify-center gap-2 py-3.5 px-5 rounded-xl bg-[#0969DA] text-white font-bold text-sm hover:bg-[#0558B7] hover:-translate-y-0.5 transition-all no-underline w-full shadow-[0_2px_12px_rgba(9,105,218,0.28)]"
+                >
+                  <Search size={16} />
+                  View Repo Details
                 </Link>
-                <Link href="/" className="btn-hover" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "14px 20px", borderRadius: 12, background: "var(--bg-muted)", border: "1.5px solid var(--border-muted)", color: "#475569", fontWeight: 700, fontSize: 14, textDecoration: "none", width: "100%" }}>
-                  <LayoutDashboard size={15} /> Go to Dashboard
+                <Link
+                  href="/"
+                  className="flex items-center justify-center gap-2 py-3.5 px-5 rounded-xl bg-[#F0F2F5] border border-[#D0D7DE] text-[#1F2328] font-bold text-sm hover:bg-[#E2E8F0] transition-colors no-underline w-full"
+                >
+                  <LayoutDashboard size={15} />
+                  Go to Dashboard
                 </Link>
               </div>
             </motion.div>
-          ) : (
+          )}
+
+          {/* ── Configure State (Step 2) ── */}
+          {!isLoadingRepo && repo && !isSuccess && (
             <motion.div
               key="form"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
             >
               <Stepper step={2} />
-              
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", marginBottom: 32 }}>
-                <div style={{ width: 64, height: 64, borderRadius: "50%", background: "var(--primary-bg-alt)", color: "var(--primary)", display: "flex", alignItems: "center", justifyContent: "center", border: "4px solid var(--primary-border)", marginBottom: 16 }}>
+
+              <div className="flex flex-col items-center text-center mb-8">
+                <div className="w-16 h-16 rounded-full bg-[#F0F6FC] text-[#0969DA] flex items-center justify-center border-4 border-[#C2DBF5] mb-4">
                   <CheckCircle2 size={30} />
                 </div>
-                <h1 className="bricolage" style={{ fontSize: 26, fontWeight: 800, color: "var(--text-main)", letterSpacing: "-0.02em", marginBottom: 8 }}>GitHub App Connected!</h1>
-                <p style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6 }}>Your repository was successfully linked to Orion. Please set the staging environment URL that our agents should systematically audit.</p>
+                <h1 className="bricolage font-extrabold text-[26px] text-[#1F2328] tracking-tight mb-2">
+                  GitHub App Connected!
+                </h1>
+                <p className="text-sm text-[#656D76] leading-relaxed">
+                  Your repository was linked to Orion. Set the staging URL our agents will audit.
+                </p>
               </div>
 
-              <div style={{ background: "var(--bg-subtle)", border: "1px solid var(--border-subtle)", borderRadius: 12, padding: "16px", marginBottom: 24, display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ width: 40, height: 40, borderRadius: 10, background: "var(--bg-card)", border: "1px solid var(--border-muted)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <GitBranch size={20} style={{ color: "var(--text-main)" }} />
+              {/* Repo display */}
+              <div className="bg-[#FAFBFC] border border-[#F0F2F5] rounded-xl p-4 mb-6 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-white border border-[#D0D7DE] flex items-center justify-center shrink-0">
+                  <GitBranch size={20} className="text-[#1F2328]" />
                 </div>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-dim)", marginBottom: 2 }}>Connected Repo</div>
-                  <div className="bricolage" style={{ fontSize: 15, fontWeight: 700, color: "var(--text-main)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>{repo.owner}/</span>{repo.repo}
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-[#8B949E] mb-0.5">
+                    Connected Repo
+                  </div>
+                  <div className="bricolage font-bold text-[15px] text-[#1F2328] truncate">
+                    <span className="text-[#656D76] font-medium">{repo.owner}/</span>
+                    {repo.name}
                   </div>
                 </div>
               </div>
 
-              <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {/* Staging URL form */}
+              <form onSubmit={handleSave} className="flex flex-col gap-3">
                 <div>
-                  <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: "var(--text-main)", marginBottom: 6 }}>Staging Environment URL</label>
-                  <div style={{ position: "relative" }}>
-                    <Globe size={15} style={{ position: "absolute", top: "50%", transform: "translateY(-50%)", left: 14, color: "var(--text-muted)", pointerEvents: "none" }} />
+                  <label className="block text-[13px] font-bold text-[#1F2328] mb-1.5">
+                    Staging Environment URL
+                  </label>
+                  <div className="relative">
+                    <Globe
+                      size={15}
+                      className="absolute top-1/2 -translate-y-1/2 left-3.5 text-[#8B949E] pointer-events-none"
+                    />
                     <input
                       type="url"
                       required
@@ -259,30 +314,30 @@ function ConnectCallbackInner() {
                       value={stagingUrl}
                       onChange={(e) => setStagingUrl(e.target.value)}
                       disabled={isSaving}
-                      className="input-glow"
-                      style={{ width: "100%", height: 46, paddingLeft: 38, paddingRight: 14, fontSize: 14, color: "var(--text-main)", fontFamily: "monospace", background: "var(--bg-card)", border: "1.5px solid var(--border-muted)", borderRadius: 12, outline: "none" }}
+                      className="w-full h-[46px] pl-[38px] pr-3.5 text-sm text-[#1F2328] font-mono bg-white border border-[#D0D7DE] rounded-xl outline-none focus:border-[#0969DA] focus:shadow-[0_0_0_3px_rgba(9,105,218,0.14)] transition-all placeholder:text-[#8B949E] disabled:opacity-60"
                     />
                   </div>
-                  {saveError && <p style={{ fontSize: 12, color: "var(--danger-dark)", fontWeight: 600, marginTop: 6 }}>{saveError}</p>}
+                  {saveError && (
+                    <p className="text-xs text-[#CF222E] font-semibold mt-1.5">{saveError}</p>
+                  )}
                 </div>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
-                  <button 
-                    type="submit" 
-                    disabled={isSaving || !stagingUrl}
-                    className="btn-hover"
-                    style={{ width: "100%", height: 48, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "var(--primary)", color: "var(--text-inverse)", fontWeight: 700, fontSize: 14, borderRadius: 12, border: "none", boxShadow: isSaving ? "none" : "0 2px 12px rgba(37,99,235,0.3)" }}
+                <div className="flex flex-col gap-2.5 mt-2">
+                  <button
+                    type="submit"
+                    disabled={isSaving || !stagingUrl.trim()}
+                    className="w-full h-12 flex items-center justify-center gap-2 bg-[#0969DA] text-white font-bold text-sm rounded-xl hover:bg-[#0558B7] hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-[0_2px_12px_rgba(9,105,218,0.28)]"
                   >
                     {isSaving ? (
                       <>
-                        <div style={{ width: 14, height: 14, border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "var(--text-inverse)", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+                        <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                         Setting up...
                       </>
                     ) : (
                       "Start Monitoring"
                     )}
                   </button>
-                  <p style={{ fontSize: 11.5, color: "var(--text-dim)", textAlign: "center", fontWeight: 500 }}>
+                  <p className="text-[11.5px] text-[#8B949E] text-center font-medium">
                     You can always change this later from the repos page.
                   </p>
                 </div>
@@ -292,13 +347,24 @@ function ConnectCallbackInner() {
         </AnimatePresence>
       </motion.div>
     </div>
-  );
+  )
 }
 
+// ──────────────────────────────────────────────────────────
+// Page export with Suspense boundary
+// ──────────────────────────────────────────────────────────
 export default function ConnectCallbackPage() {
   return (
-    <Suspense>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#FAFBFC] flex items-center justify-center">
+          <div className="w-11 h-11 rounded-xl bg-[#F0F6FC] border border-[#C2DBF5] flex items-center justify-center">
+            <div className="w-5 h-5 border-[3px] border-[#C2DBF5] border-t-[#0969DA] rounded-full animate-spin" />
+          </div>
+        </div>
+      }
+    >
       <ConnectCallbackInner />
     </Suspense>
-  );
+  )
 }
