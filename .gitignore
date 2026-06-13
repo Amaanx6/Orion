@@ -50,6 +50,9 @@ yarn-error.log*
 
 
 apps/api
-packages
+packages/agents
+packages/db
+packages/realtime
+packages/ui
 ngrok.exe
 README.md
