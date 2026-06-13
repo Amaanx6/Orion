@@ -48,7 +48,7 @@ yarn-error.log*
 
 
 
-apps/web
+
 apps/api
 packages
 ngrok.exe
