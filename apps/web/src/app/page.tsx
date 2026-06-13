@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useRef, useCallback } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { motion, AnimatePresence } from "framer-motion"
 import Link from "next/link"
@@ -26,143 +26,304 @@ import {
   XCircle,
   CheckCircle2,
   Wrench,
+  AlertTriangle,
+  Sparkles,
+  Terminal,
+  Settings,
+  FileText,
+  PlusSquare,
+  Code,
+  ExternalLink,
 } from "lucide-react"
 import { runsApi, reposApi } from "@/lib/api"
 import { cn, formatDate, formatDuration, getScoreLabel, getScoreColor, getStatusColor } from "@/lib/utils"
 import type { Run, ConnectedRepo } from "@/lib/types"
 
-// ────────────────────────────────────────────────────────
-// ScoreArc – circular progress indicator
-// ────────────────────────────────────────────────────────
-function ScoreArc({ score, size = 140, animate = true }: { score: number; size?: number; animate?: boolean }) {
+// ──────────────────────────────────────────────────────────
+// Helpers
+// ──────────────────────────────────────────────────────────
+
+/** Convert Tailwind color class to hex for SVG strokes */
+function scoreClassToHex(colorClass: string): string {
+  if (colorClass.includes("green") || colorClass.includes("emerald")) return "#10b981"
+  if (colorClass.includes("amber") || colorClass.includes("yellow")) return "#f59e0b"
+  if (colorClass.includes("red")) return "#ef4444"
+  return "#ef4444"
+}
+
+function getRunDisplayName(run: Run): string {
+  if (!run.url) return "Untitled Run"
+  try {
+    const url = new URL(run.url)
+    return url.pathname.replace(/\/$/, "") || url.hostname
+  } catch {
+    return run.url.replace(/^https?:\/\//, "").replace(/\/$/, "")
+  }
+}
+
+function getRelativeTime(dateStr: string): string {
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  const mins = Math.floor(diff / 60000)
+  const hrs = Math.floor(mins / 60)
+  const days = Math.floor(hrs / 24)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins}m ago`
+  if (hrs < 24) return `${hrs}h ago`
+  if (days < 7) return `${days}d ago`
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
+// ──────────────────────────────────────────────────────────
+// ScoreArc – full-size animated score ring
+// ──────────────────────────────────────────────────────────
+function ScoreArc({ score, size = 120, animate = true }: { score: number; size?: number; animate?: boolean }) {
   const center = size / 2
   const radius = center - 10
   const circumference = 2 * Math.PI * radius
-  const arcLength = (Math.min(Math.max(score, 0), 100) / 100) * circumference
-
-  // Use the existing utility for colour (returns Tailwind class, we need hex)
+  const clamped = Math.min(Math.max(score, 0), 100)
+  const arcLength = (clamped / 100) * circumference
   const colorClass = getScoreColor(score)
-  // Extract hex colour from Tailwind class (fallback to a sensible default)
-  const colorHex =
-    colorClass === "text-green-400" ? "#1A7F37" :
-    colorClass === "text-emerald-400" ? "#1A7F37" :
-    colorClass === "text-amber-400" ? "#9A6700" :
-    colorClass === "text-red-400" ? "#CF222E" : "#CF222E"
+  const colorHex = scoreClassToHex(colorClass)
 
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90" role="img" aria-label={`Score: ${score} out of 100`}>
-        <circle cx={center} cy={center} r={radius} fill="none" stroke="#F0F2F5" strokeWidth="8" />
+        <circle cx={center} cy={center} r={radius} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="8" />
         <motion.circle
           cx={center} cy={center} r={radius}
           fill="none" stroke={colorHex} strokeWidth="8" strokeLinecap="round"
           strokeDasharray={circumference}
           initial={animate ? { strokeDashoffset: circumference } : { strokeDashoffset: circumference - arcLength }}
           animate={{ strokeDashoffset: circumference - arcLength }}
-          transition={animate ? { type: "spring", stiffness: 80, damping: 12 } : { duration: 0 }}
+          transition={animate ? { type: "spring", stiffness: 80, damping: 14 } : { duration: 0 }}
         />
       </svg>
-      <span className="absolute bricolage font-bold text-[20px]" style={{ color: colorHex }}>
-        {score}
-      </span>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="bricolage font-bold text-[24px] leading-none" style={{ color: colorHex }}>{score}</span>
+        <span className="text-[11px] text-[#8B949E] mt-0.5">/100</span>
+      </div>
     </div>
   )
 }
 
-// ────────────────────────────────────────────────────────
-// StatCard – one of the five stat cards
-// ────────────────────────────────────────────────────────
-function StatCard({ label, value, icon: Icon, accent, children }: {
+// ──────────────────────────────────────────────────────────
+// MiniScoreRing – tiny score ring for table rows
+// ──────────────────────────────────────────────────────────
+function MiniScoreRing({ score }: { score: number }) {
+  const size = 28
+  const center = size / 2
+  const radius = center - 4
+  const circumference = 2 * Math.PI * radius
+  const clamped = Math.min(Math.max(score, 0), 100)
+  const arcLength = (clamped / 100) * circumference
+  const colorHex = scoreClassToHex(getScoreColor(score))
+
+  return (
+    <div className="inline-flex items-center gap-2">
+      <svg width={size} height={size} className="-rotate-90 shrink-0" role="img" aria-label={`Score: ${score}`}>
+        <circle cx={center} cy={center} r={radius} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="10" />
+        <circle
+          cx={center} cy={center} r={radius}
+          fill="none" stroke={colorHex} strokeWidth="10" strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference - arcLength}
+        />
+      </svg>
+      <span style={{ fontFamily: 'var(--font-syne)', color: colorHex }} className="font-bold text-sm">{score}</span>
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────
+// StatCard
+// ──────────────────────────────────────────────────────────
+function StatCard({
+  label, value, icon: Icon, accent, children, donut,
+}: {
   label: string
   value: string | number
   icon: any
   accent: string
   children?: React.ReactNode
+  donut?: { score: number }
 }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
-      className="bg-white/80 backdrop-blur-sm border border-[#D0D7DE] rounded-2xl p-4 hover:-translate-y-0.5 hover:shadow-md transition-all"
-      style={{ borderLeft: `3px solid ${accent}` }}
+      className="group rounded-2xl p-6 hover:-translate-y-1 hover:shadow-2xl hover:shadow-cyan-500/10 transition-all duration-300 flex flex-col bg-white/5 border border-white/10 backdrop-blur-xl hover:border-white/20 relative overflow-hidden"
     >
-      <Icon className="w-5 h-5 mb-2" style={{ color: accent }} />
+      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+      <div className="relative z-10 flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold text-[#7da3c4] uppercase tracking-widest">{label}</h3>
+        <Icon className="w-5 h-5 text-[#0ff]" />
+      </div>
       {children ? (
         children
-      ) : (
-        <div>
-          <p className="bricolage font-extrabold text-2xl text-[#1F2328]">{value}</p>
-          <p className="text-[13px] text-[#656D76] mt-0.5">{label}</p>
+      ) : donut ? (
+        <div className="flex items-end justify-between mt-2 relative z-10">
+          <span style={{ fontFamily: 'var(--font-syne)' }} className="font-bold text-4xl bg-gradient-to-r from-[#e1e8ed] to-[#a8c5dd] bg-clip-text text-transparent">{value}</span>
+          <MiniDonut score={donut.score} />
         </div>
+      ) : (
+        <span style={{ fontFamily: 'var(--font-syne)' }} className="font-bold text-4xl bg-gradient-to-r from-[#e1e8ed] to-[#a8c5dd] bg-clip-text text-transparent mt-2 relative z-10">{value}</span>
       )}
     </motion.div>
   )
 }
 
-// ────────────────────────────────────────────────────────
-// NavBar – sticky glass navigation
-// ────────────────────────────────────────────────────────
-function NavBar() {
-  const router = useRouter()
-  const pathname = "/" // since it's always the dashboard
+// ──────────────────────────────────────────────────────────
+// MiniDonut – tiny donut for avg score stat card
+// ──────────────────────────────────────────────────────────
+function MiniDonut({ score }: { score: number }) {
+  const size = 48
+  const center = size / 2
+  const radius = center - 6
+  const circumference = 2 * Math.PI * radius
+  const clamped = Math.min(Math.max(score, 0), 100)
+  const arcLength = (clamped / 100) * circumference
+  const colorHex = scoreClassToHex(getScoreColor(score))
 
   return (
-    <nav className="sticky top-0 z-50 bg-[rgba(250,251,252,0.88)] backdrop-blur-[18px] border-b border-[#D0D7DE] h-14 flex items-center px-4 md:px-6">
-      <Link href="/" className="flex items-center gap-2 shrink-0">
-        <div className="w-7 h-7 bg-[#1F2328] rounded-md flex items-center justify-center">
-          <Crosshair className="w-4 h-4 text-white" />
-        </div>
-        <span className="bricolage font-extrabold text-lg text-[#1F2328]">Orion</span>
-      </Link>
+    <svg width={size} height={size} className="-rotate-90 shrink-0" viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={center} cy={center} r={radius} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="10" />
+      <motion.circle
+        cx={center} cy={center} r={radius}
+        fill="none" stroke={colorHex} strokeWidth="10" strokeLinecap="round"
+        strokeDasharray={circumference}
+        initial={{ strokeDashoffset: circumference }}
+        animate={{ strokeDashoffset: circumference - arcLength }}
+        transition={{ type: "spring", stiffness: 60, damping: 12, delay: 0.2 }}
+      />
+    </svg>
+  )
+}
 
-      <div className="hidden md:flex items-center gap-1 ml-8">
-        {["Dashboard", "Runs", "Repos", "Docs"].map((label) => {
-          const href = label === "Dashboard" ? "/" : `/${label.toLowerCase()}`
-          return (
-            <Link
-              key={label}
-              href={href}
-              className={cn(
-                "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
-                pathname === href
-                  ? "bg-[#F0F6FC] text-[#0969DA]"
-                  : "text-[#656D76] hover:bg-[#F0F2F5] hover:text-[#1F2328]"
-              )}
-            >
-              {label}
-            </Link>
-          )
-        })}
+// ──────────────────────────────────────────────────────────
+// NavBar – premium glass navigation
+// ──────────────────────────────────────────────────────────
+function NavBar() {
+  const router = useRouter()
+  const pathname = "/"
+
+  return (
+    <nav className="sticky top-0 z-50 h-16 flex items-center justify-between px-4 md:px-8 w-full border-b border-white/5 bg-[rgba(10,14,23,0.7)] backdrop-blur-xl">
+      {/* Left: Logo + nav links */}
+      <div className="flex items-center gap-8">
+        <Link href="/" className="flex items-center gap-3 shrink-0 group">
+          <div className="w-9 h-9 bg-gradient-to-br from-[#0ff] via-[#0cf] to-[#09f] rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/20 group-hover:shadow-cyan-500/40 transition-all">
+            <Zap className="w-5 h-5 text-[#0a0e17] font-bold" />
+          </div>
+          <span style={{ fontFamily: 'var(--font-syne)' }} className="font-bold text-xl bg-gradient-to-r from-[#e1e8ed] via-[#a8c5dd] to-[#7da3c4] bg-clip-text text-transparent">
+            Orion
+          </span>
+        </Link>
+
+        <div className="hidden lg:flex items-center gap-1">
+          {[
+            { label: "Dashboard", href: "/" },
+            { label: "Runs", href: "/runs" },
+            { label: "Repos", href: "/repos" },
+            { label: "Docs", href: "/docs" },
+          ].map(({ label, href }) => {
+            const isActive = pathname === href
+            return (
+              <Link
+                key={label}
+                href={href}
+                className={cn(
+                  "px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 relative",
+                  isActive
+                    ? "text-[#0ff] bg-white/5"
+                    : "text-[#a8c5dd] hover:text-[#e1e8ed] hover:bg-white/5"
+                )}
+              >
+                {label}
+              </Link>
+            )
+          })}
+        </div>
       </div>
 
-      <div className="flex items-center gap-3 ml-auto">
+      {/* Right: actions */}
+      <div className="flex items-center gap-3">
+        {/* Active runs indicator */}
+        <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-sm">
+          <span className="w-2 h-2 rounded-full bg-[#0ff] animate-pulse" />
+          <span className="text-xs text-[#a8c5dd] font-medium">Live Monitor</span>
+        </div>
+
+        {/* Connect GitHub */}
         <Link
           href="/connect/callback"
-          className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold border border-[#D0D7DE] text-[#1F2328] rounded-md hover:border-[#0969DA] hover:bg-[#F0F6FC] transition-all"
+          className="hidden sm:inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-gradient-to-r from-[#0ff] to-[#09f] text-[#0a0e17] rounded-lg hover:shadow-lg hover:shadow-cyan-500/30 transition-all hover:-translate-y-0.5"
         >
           <GitBranch className="w-4 h-4" />
-          Connect GitHub
+          GitHub
         </Link>
-        <button className="md:hidden p-2 rounded-md hover:bg-[#F0F2F5]">
-          <Menu className="w-5 h-5 text-[#656D76]" />
+
+        {/* Icon buttons */}
+        <div className="flex gap-1">
+          <button className="p-2.5 rounded-lg text-[#a8c5dd] hover:text-[#0ff] hover:bg-white/5 transition-all" aria-label="Command palette">
+            <Command className="w-5 h-5" />
+          </button>
+          <button className="p-2.5 rounded-lg text-[#a8c5dd] hover:text-[#0ff] hover:bg-white/5 transition-all" aria-label="Notifications">
+            <Bell className="w-5 h-5" />
+          </button>
+          <button className="p-2.5 rounded-lg text-[#a8c5dd] hover:text-[#0ff] hover:bg-white/5 transition-all" aria-label="Settings">
+            <Settings className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Mobile menu */}
+        <button className="lg:hidden p-2 rounded-lg hover:bg-white/5 transition-all">
+          <Menu className="w-5 h-5 text-[#a8c5dd]" />
         </button>
       </div>
     </nav>
   )
 }
 
-// ────────────────────────────────────────────────────────
-// Dashboard Page
-// ────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────
+// Footer
+// ──────────────────────────────────────────────────────────
+function Footer() {
+  return (
+    <footer className="mt-auto border-t border-white/5 bg-[rgba(10,14,23,0.5)] backdrop-blur-sm py-10">
+      <div className="flex flex-col md:flex-row justify-between items-center px-4 md:px-8 max-w-7xl mx-auto gap-6">
+        <div style={{ fontFamily: 'var(--font-syne)' }} className="font-bold text-lg bg-gradient-to-r from-[#e1e8ed] to-[#a8c5dd] bg-clip-text text-transparent">
+          Orion
+        </div>
+        <div className="text-sm text-[#7da3c4] text-center">
+          © 2025 Orion Systems. Precision meets autonomy.
+        </div>
+        <div className="flex gap-6">
+          {["Privacy Policy", "Terms of Service", "Security", "Status"].map((link) => (
+            <a key={link} href="#" className="text-xs text-[#7da3c4] hover:text-[#0ff] transition-colors">
+              {link}
+            </a>
+          ))}
+        </div>
+      </div>
+    </footer>
+  )
+}
+
+// ──────────────────────────────────────────────────────────
+// Main Dashboard Page
+// ──────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [urlInput, setUrlInput] = useState("")
   const [statusFilter, setStatusFilter] = useState("")
   const [page, setPage] = useState(1)
+  const heroInputRef = useRef<HTMLInputElement>(null)
 
-  // Fetch runs (paginated, with optional status filter)
+  // Fetch runs
   const {
     data: runsData,
     isLoading: runsLoading,
@@ -176,12 +337,14 @@ export default function DashboardPage() {
         ...(statusFilter && { status: statusFilter }),
       }),
     placeholderData: (prev) => prev,
+    staleTime: 10_000,
   })
 
-  // Fetch repos for stats (we'll compute pass/fail counts from all runs)
+  // Fetch repos
   const { data: repos } = useQuery({
     queryKey: ["repos"],
     queryFn: () => reposApi.getRepos(),
+    staleTime: 30_000,
   })
 
   // Create run mutation
@@ -193,204 +356,432 @@ export default function DashboardPage() {
     },
   })
 
-  // Derived statistics (from runs data – you could replace with a dedicated stats endpoint)
+  // Derived data
+  const runs: Run[] = useMemo(() => (runsData?.data as Run[]) ?? [], [runsData])
+  const totalRuns = runsData?.total ?? runs.length
+  const totalPages = runsData ? Math.max(1, Math.ceil((runsData.total ?? runs.length) / 10)) : 1
+  const lastRun: Run | null = runs.length > 0 ? [...runs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null : null
+
   const stats = useMemo(() => {
     if (!runsData?.data) return null
-    const runs = runsData.data as Run[]
-    const total = runsData.total ?? runs.length
-    const passedCount = runs.filter((r) => r.pass === true).length
-    const failedCount = runs.filter((r) => r.pass === false).length
-    const averageScore = runs.reduce((sum, r) => sum + (r.overallScore || 0), 0) / (runs.length || 1)
-    return { totalRuns: total, passedCount, failedCount, averageScore: Math.round(averageScore) }
-  }, [runsData])
+    const allRuns = runsData.data as Run[]
+    const passedCount = allRuns.filter((r) => r.pass === true).length
+    const failedCount = allRuns.filter((r) => r.pass === false).length
+    const avgScore = allRuns.length > 0
+      ? Math.round(allRuns.reduce((sum, r) => sum + (r.overallScore || 0), 0) / allRuns.length)
+      : 0
+    return { totalRuns, passedCount, failedCount, avgScore }
+  }, [runsData, totalRuns])
 
-  const runs = (runsData?.data as Run[]) ?? []
-  const totalPages = runsData ? Math.max(1, Math.ceil((runsData.total ?? runs.length) / 10)) : 1
+  const reposList: ConnectedRepo[] = useMemo(() => repos ?? [], [repos])
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const trimmed = urlInput.trim()
-    if (trimmed && !createRunMutation.isPending) {
-      createRunMutation.mutate(trimmed)
-    }
-  }
+  const handleSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault()
+      const trimmed = urlInput.trim()
+      if (trimmed && !createRunMutation.isPending) {
+        createRunMutation.mutate(trimmed)
+      }
+    },
+    [urlInput, createRunMutation]
+  )
+
+  const handleNewRunClick = useCallback(() => {
+    heroInputRef.current?.focus()
+    heroInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+  }, [])
 
   return (
-    <div className="min-h-screen bg-[#FAFBFC]">
+    <div className="min-h-screen bg-gradient-to-br from-[#0a0e17] via-[#0f1419] to-[#0a0e17] text-[#e1e8ed] flex flex-col">
       <NavBar />
 
-      <main className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-10">
-        {/* Hero Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white/80 backdrop-blur-sm border border-[#D0D7DE] rounded-2xl p-6 md:p-10 relative overflow-hidden mb-8"
-        >
-          <div className="relative z-10 max-w-2xl mx-auto text-center">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#F0F2F5] text-[#656D76] text-xs font-medium rounded-full mb-4">
-              <Zap className="w-3.5 h-3.5" /> AI-powered website auditing · v2.4
-            </span>
-            <h1 className="bricolage font-extrabold text-4xl md:text-5xl leading-tight text-[#1F2328] mb-4">
-              Know your site&apos;s health{" "}
-              <span className="text-[#0969DA] italic underline decoration-wavy underline-offset-4">before</span> your users do.
-            </h1>
-            <p className="text-lg text-[#656D76] mb-8">
-              Orion deploys AI agents across your site to surface performance gaps, broken flows, and accessibility issues — then delivers a clear, actionable score.
-            </p>
-
-            <form onSubmit={handleSubmit} className="max-w-xl mx-auto">
-              <div className="flex items-center bg-white border border-[#D0D7DE] rounded-lg focus-within:border-[#0969DA] focus-within:ring-2 focus-within:ring-[#0969DA]/20 transition">
-                <Globe className="w-5 h-5 text-[#8B949E] ml-4" />
-                <input
-                  type="url"
-                  value={urlInput}
-                  onChange={(e) => setUrlInput(e.target.value)}
-                  placeholder="Paste a URL to audit..."
-                  className="flex-1 px-3 py-3 text-sm bg-transparent outline-none placeholder:text-[#8B949E]"
-                  disabled={createRunMutation.isPending}
-                />
-                <button
-                  type="submit"
-                  disabled={createRunMutation.isPending || !urlInput.trim()}
-                  className="flex items-center gap-2 px-5 py-3 bg-[#0969DA] text-white text-sm font-semibold rounded-r-lg hover:bg-[#0558B7] disabled:opacity-50 transition"
-                >
-                  {createRunMutation.isPending ? (
-                    <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.8 }} className="w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                  ) : (
-                    <Play className="w-4 h-4 fill-white" />
-                  )}
-                  {createRunMutation.isPending ? "Analyzing..." : "Run Analysis"}
-                </button>
+      <main className="flex-grow w-full max-w-7xl mx-auto px-4 md:px-8 py-12">
+        <div className="grid grid-cols-4 md:grid-cols-12 gap-6">
+          {/* ── Hero Section ── */}
+          <section className="col-span-4 md:col-span-12 mb-6">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex flex-col items-center justify-center text-center py-12"
+            >
+              <h1 style={{ fontFamily: 'var(--font-syne)' }} className="font-bold text-5xl md:text-7xl leading-tight mb-6 bg-gradient-to-b from-[#e1e8ed] via-[#a8c5dd] to-[#7da3c4] bg-clip-text text-transparent">
+                Know your site&apos;s health{" "}
+                <span className="italic text-transparent bg-gradient-to-r from-[#0ff] via-[#0cf] to-[#09f] bg-clip-text">before</span> your users do.
+              </h1>
+              <p className="text-lg text-[#7da3c4] mb-8 max-w-2xl">Get instant insights into your website performance and health metrics in real-time.</p>
+              
+              <div className="w-full max-w-2xl relative group">
+                <div className="absolute inset-0 bg-gradient-to-r from-[#0ff]/20 to-[#09f]/20 rounded-2xl blur-2xl opacity-0 group-focus-within:opacity-100 transition-all duration-300" />
+                <div className="relative flex gap-3">
+                  <div className="flex-1 relative">
+                    <Globe className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#0ff]" />
+                    <input
+                      ref={heroInputRef}
+                      type="url"
+                      value={urlInput}
+                      onChange={(e) => setUrlInput(e.target.value)}
+                      placeholder="https://example.com"
+                      className="w-full pl-12 pr-4 py-3.5 bg-white/5 border border-white/10 rounded-xl focus:border-[#0ff]/50 focus:ring-2 focus:ring-[#0ff]/20 text-[#e1e8ed] placeholder-[#7da3c4] outline-none transition-all backdrop-blur-sm"
+                      disabled={createRunMutation.isPending}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={createRunMutation.isPending || !urlInput.trim()}
+                    className="px-8 py-3.5 bg-gradient-to-r from-[#0ff] via-[#0cf] to-[#09f] text-[#0a0e17] font-semibold rounded-xl hover:shadow-lg hover:shadow-cyan-500/30 transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
+                  >
+                    {createRunMutation.isPending ? (
+                      <>
+                        <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.8 }} className="w-4 h-4 border-2 border-[#0a0e17] border-t-transparent rounded-full" />
+                        Scanning...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4" />
+                        Scan Now
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
               {createRunMutation.isError && (
-                <p className="text-xs text-[#CF222E] mt-2">
+                <p className="text-sm text-[#ff6b6b] mt-4">
                   {(createRunMutation.error as any)?.message || "Failed to start analysis."}
                 </p>
               )}
-            </form>
+            </motion.div>
+          </section>
 
-            <div className="flex items-center justify-center gap-4 mt-4 text-xs text-[#8B949E]">
-              <span>✓ Paste any public URL</span>
-              <span className="text-[#D0D7DE]">·</span>
-              <span>✓ Results in under 3 min</span>
-              <span className="text-[#D0D7DE]">·</span>
-              <span>✓ No sign-up required</span>
-            </div>
-            <div className="mt-6 flex items-center justify-center gap-4">
-              <span className="text-xs text-[#8B949E]">Or</span>
-              <Link href="/connect/callback" className="inline-flex items-center gap-1.5 text-sm font-medium text-[#0969DA] hover:underline">
-                <GitBranch className="w-4 h-4" />
-                Install on GitHub →
-              </Link>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Stats Row */}
-        {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <StatCard label="Total Runs" value={stats.totalRuns} icon={BarChart3} accent="#0969DA" />
-            <StatCard label="Passed" value={stats.passedCount} icon={Check} accent="#1A7F37" />
-            <StatCard label="Failed" value={stats.failedCount} icon={X} accent="#CF222E" />
-            <StatCard label="Avg Score" value={`${stats.averageScore}`} icon={TrendingUp} accent="#9A6700" />
-          </div>
-        )}
-
-        {/* Runs Table */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
-          className="bg-white/80 backdrop-blur-sm border border-[#D0D7DE] rounded-2xl overflow-hidden"
-        >
-          <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-[#F0F2F5]">
-            <h2 className="bricolage font-bold text-lg text-[#1F2328]">Recent Runs</h2>
-            <Link href="/runs" className="text-sm font-medium text-[#0969DA] hover:underline">View all →</Link>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-[#FAFBFC] text-left">
-                  {["URL", "Score", "Status", "Mode", "Duration", "Created"].map((h) => (
-                    <th key={h} className="px-4 md:px-6 py-3 text-[11px] font-semibold text-[#656D76] uppercase tracking-wider">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {runsLoading ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <tr key={i} className="border-b border-[#F0F2F5]">
-                      {Array.from({ length: 6 }).map((_, j) => (
-                        <td key={j} className="px-4 md:px-6 py-4"><div className="h-4 bg-[#F0F2F5] rounded animate-pulse" /></td>
-                      ))}
-                    </tr>
-                  ))
-                ) : runs.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-16 text-center">
-                      <Search className="w-10 h-10 text-[#8B949E] mx-auto mb-3" />
-                      <p className="font-bold text-[#1F2328]">No runs yet</p>
-                      <p className="text-sm text-[#656D76]">Paste a URL above to start.</p>
-                    </td>
-                  </tr>
-                ) : (
-                  runs.map((run) => (
-                    <tr
-                      key={run.id}
-                      onClick={() => router.push(`/runs/${run.id}`)}
-                      className="border-b border-[#F0F2F5] hover:bg-[#F0F6FC]/50 cursor-pointer transition-colors"
-                    >
-                      <td className="px-4 md:px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <Globe className="w-3.5 h-3.5 text-[#8B949E]" />
-                          <span className="text-sm truncate max-w-[200px]">{run.url?.replace(/^https?:\/\//, "")}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 md:px-6 py-4">
-                        {run.overallScore != null ? (
-                          <ScoreArc score={run.overallScore} size={44} animate={false} />
-                        ) : (
-                          <span className="text-sm text-[#8B949E]">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 md:px-6 py-4">
-                        <span className={cn("inline-flex items-center gap-1 px-2.5 py-0.5 text-[11px] font-semibold rounded-full", getStatusColor(run.status))}>
-                          {run.status}
-                        </span>
-                      </td>
-                      <td className="px-4 md:px-6 py-4 text-sm text-[#656D76]">{run.mode || "manual"}</td>
-                      <td className="px-4 md:px-6 py-4 text-sm text-[#656D76]">
-                        {run.duration ? formatDuration(run.duration / 1000) : "—"}
-                      </td>
-                      <td className="px-4 md:px-6 py-4 text-sm text-[#656D76]">
-                        {formatDate(run.createdAt)}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {totalPages > 1 && (
-            <div className="flex items-center justify-end gap-1 px-4 py-3 border-t border-[#F0F2F5]">
-              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="p-1.5 rounded hover:bg-[#F0F2F5] disabled:opacity-30">
-                <ChevronLeft className="w-4 h-4 text-[#656D76]" />
-              </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setPage(p)}
-                  className={cn("min-w-[32px] h-8 text-xs font-medium rounded", page === p ? "bg-[#0969DA] text-white" : "text-[#656D76] hover:bg-[#F0F2F5]")}
-                >
-                  {p}
-                </button>
-              ))}
-              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="p-1.5 rounded hover:bg-[#F0F2F5] disabled:opacity-30">
-                <ChevronRight className="w-4 h-4 text-[#656D76]" />
-              </button>
-            </div>
+          {/* ── Stats Row ── */}
+          {stats && (
+            <section className="col-span-4 md:col-span-12 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4">
+              <StatCard label="Total Runs" value={stats.totalRuns.toLocaleString()} icon={BarChart3} accent="#0969DA" />
+              <StatCard label="Passed" value={stats.passedCount.toLocaleString()} icon={CheckCircle2} accent="#1A7F37" />
+              <StatCard label="Failed" value={stats.failedCount.toLocaleString()} icon={XCircle} accent="#CF222E" />
+              <StatCard label="Avg Score" value={stats.avgScore} icon={TrendingUp} accent="#9A6700" donut={{ score: stats.avgScore }} />
+            </section>
           )}
-        </motion.div>
+
+          {/* ── Main Content (8 cols) ── */}
+          <div className="col-span-4 md:col-span-8 flex flex-col gap-6">
+            {/* Last Run Banner */}
+            {lastRun && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="rounded-2xl p-6 md:p-8 relative overflow-hidden group hover:-translate-y-1 hover:shadow-2xl hover:shadow-cyan-500/10 transition-all duration-300 bg-white/5 border border-white/10 backdrop-blur-xl hover:border-white/20"
+              >
+                {/* Subtle background glow */}
+                <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-bl from-[#0ff]/10 via-[#09f]/5 to-transparent rounded-full blur-3xl -mr-24 -mt-24 pointer-events-none" />
+
+                <div className="flex flex-col sm:flex-row justify-between items-start gap-6 relative z-10">
+                  {/* Left: Run info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3 mb-4">
+                      {lastRun.pass === true ? (
+                        <span className="bg-[#10b981]/15 text-[#10b981] text-xs font-bold px-3 py-1.5 rounded-full border border-[#10b981]/30 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-[#10b981] animate-pulse" />
+                          Passed
+                        </span>
+                      ) : lastRun.pass === false ? (
+                        <span className="bg-[#ef4444]/15 text-[#ef4444] text-xs font-bold px-3 py-1.5 rounded-full border border-[#ef4444]/30 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-[#ef4444]" />
+                          Failed
+                        </span>
+                      ) : (
+                        <span className="bg-[#f59e0b]/15 text-[#f59e0b] text-xs font-bold px-3 py-1.5 rounded-full border border-[#f59e0b]/30 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-[#f59e0b] animate-pulse" />
+                          Pending
+                        </span>
+                      )}
+                      <span className="text-xs text-[#7da3c4]">{getRelativeTime(lastRun.createdAt)}</span>
+                    </div>
+
+                    <h2 style={{ fontFamily: 'var(--font-syne)' }} className="font-bold text-2xl text-[#e1e8ed] mb-2 truncate">
+                      {getRunDisplayName(lastRun)}
+                    </h2>
+                    <p className="text-sm text-[#7da3c4] mb-5 truncate">Target: {lastRun.url}</p>
+
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        onClick={() => router.push(`/runs/${lastRun.id}`)}
+                        className="px-4 py-2 rounded-lg text-sm font-semibold bg-white/10 text-[#e1e8ed] border border-white/20 hover:border-white/40 hover:bg-white/15 transition-all flex items-center gap-2"
+                      >
+                        <FileText className="w-4 h-4" />
+                        View Details
+                      </button>
+                      {lastRun.pass === false && (
+                        <button
+                          onClick={() => router.push(`/runs/${lastRun.id}?action=fix`)}
+                          className="px-4 py-2 bg-gradient-to-r from-[#8b5cf6] to-[#6366f1] text-white text-sm font-semibold rounded-lg hover:shadow-lg hover:shadow-purple-500/20 transition-all hover:-translate-y-0.5 flex items-center gap-2"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          Auto-Fix
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right: Score arc */}
+                  <div className="shrink-0">
+                    {lastRun.overallScore != null ? (
+                      <ScoreArc score={lastRun.overallScore} size={120} animate />
+                    ) : (
+                      <div className="w-[120px] h-[120px] flex items-center justify-center">
+                        <span className="text-sm text-[#8B949E]">No score</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* Runs History Table */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.15 }}
+              className="rounded-2xl overflow-hidden flex flex-col bg-white/5 border border-white/10 backdrop-blur-xl hover:border-white/20 transition-colors duration-300"
+            >
+              <div className="p-6 border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <h3 style={{ fontFamily: 'var(--font-syne)' }} className="font-bold text-2xl text-[#e1e8ed]">Recent Runs</h3>
+                <div className="flex gap-2 flex-wrap">
+                  {[
+                    { label: "All", value: "" },
+                    { label: "Running", value: "running" },
+                    { label: "Completed", value: "completed" },
+                    { label: "Failed", value: "failed" },
+                  ].map(({ label, value }) => (
+                    <button
+                      key={value}
+                      onClick={() => { setStatusFilter(value); setPage(1) }}
+                      className={cn(
+                        "px-3 py-1.5 text-xs font-semibold rounded-lg transition-all",
+                        statusFilter === value
+                          ? "bg-white/15 text-[#0ff] border border-white/30"
+                          : "bg-white/5 text-[#7da3c4] hover:bg-white/10 border border-white/10"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-white/5 border-b border-white/10">
+                      <th className="p-4 text-xs font-bold text-[#7da3c4] uppercase tracking-widest w-12">Status</th>
+                      <th className="p-4 text-xs font-bold text-[#7da3c4] uppercase tracking-widest">Name</th>
+                      <th className="p-4 text-xs font-bold text-[#7da3c4] uppercase tracking-widest">Score</th>
+                      <th className="p-4 text-xs font-bold text-[#7da3c4] uppercase tracking-widest">Duration</th>
+                      <th className="p-4 text-xs font-bold text-[#7da3c4] uppercase tracking-widest">Time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-sm text-[#e1e8ed]">
+                    {runsLoading ? (
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <tr key={i} className="border-b border-white/5 hover:bg-white/3 transition-colors">
+                          {Array.from({ length: 5 }).map((_, j) => (
+                            <td key={j} className="p-4"><div className="h-4 bg-white/10 rounded animate-pulse" style={{ width: j === 1 ? 140 : 60 }} /></td>
+                          ))}
+                        </tr>
+                      ))
+                    ) : runs.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-10 text-center">
+                          <Search className="w-10 h-10 text-[#7da3c4] mx-auto mb-3" />
+                          <p className="font-bold text-[#e1e8ed]">No runs yet</p>
+                          <p className="text-sm text-[#7da3c4] mt-1">Enter a URL above to start your first audit.</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      runs.map((run) => (
+                        <tr
+                          key={run.id}
+                          onClick={() => router.push(`/runs/${run.id}`)}
+                          className="border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer group"
+                        >
+                          <td className="p-4">
+                            {run.pass === true ? (
+                              <CheckCircle2 className="w-5 h-5 text-[#10b981]" />
+                            ) : run.pass === false ? (
+                              <XCircle className="w-5 h-5 text-[#ef4444]" />
+                            ) : run.status === "running" ? (
+                              <motion.div
+                                animate={{ opacity: [1, 0.5, 1] }}
+                                transition={{ repeat: Infinity, duration: 1.5 }}
+                              >
+                                <AlertTriangle className="w-5 h-5 text-[#f59e0b]" />
+                              </motion.div>
+                            ) : (
+                              <AlertTriangle className="w-5 h-5 text-[#f59e0b]" />
+                            )}
+                          </td>
+                          <td className="p-4 font-medium text-[#e1e8ed] truncate max-w-[200px] group-hover:text-[#0ff] transition-colors">{getRunDisplayName(run)}</td>
+                          <td className="p-4">
+                            {run.overallScore != null ? (
+                              <MiniScoreRing score={run.overallScore} />
+                            ) : (
+                              <span className="text-[#7da3c4]">—</span>
+                            )}
+                          </td>
+                          <td className="p-4 text-[#7da3c4]">
+                            {run.duration
+                              ? formatDuration(run.duration / 1000)
+                              : run.duration
+                                ? formatDuration(run.duration / 1000)
+                                : "—"}
+                          </td>
+                          <td className="p-4 text-[#7da3c4]">{getRelativeTime(run.createdAt)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && !runsLoading && (
+                <div className="flex items-center justify-between px-6 py-4 border-t border-white/10">
+                  <span className="text-xs text-[#7da3c4]">
+                    Page {page} of {totalPages} · {totalRuns} total runs
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                      className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition-colors"
+                      aria-label="Previous page"
+                    >
+                      <ChevronLeft className="w-4 h-4 text-[#a8c5dd]" />
+                    </button>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                      .map((p, idx, arr) => {
+                        const prev = arr[idx - 1]
+                        const showEllipsis = idx > 0 && prev !== undefined && p - prev > 1
+                        return (
+                          <div key={p} className="flex items-center gap-1">
+                            {showEllipsis && <span className="text-xs text-[#7da3c4] px-1">...</span>}
+                            <button
+                              onClick={() => setPage(p)}
+                              className={cn(
+                                "min-w-[32px] h-8 text-xs font-bold rounded-lg transition-all",
+                                page === p
+                                  ? "bg-gradient-to-r from-[#0ff] to-[#09f] text-[#0a0e17]"
+                                  : "text-[#a8c5dd] hover:bg-white/10"
+                              )}
+                            >
+                              {p}
+                            </button>
+                          </div>
+                        )
+                      })}
+                    <button
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages}
+                      className="p-1.5 rounded hover:bg-[#ecedf7] disabled:opacity-30 transition-colors"
+                      aria-label="Next page"
+                    >
+                      <ChevronRight className="w-4 h-4 text-[#424753]" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </div>
+
+          {/* ── Sidebar (4 cols) ── */}
+          <div className="col-span-4 md:col-span-4 flex flex-col gap-6">
+            {/* Environment Status */}
+            <div className="rounded-2xl p-6 bg-white/5 border border-white/10 backdrop-blur-xl hover:border-white/20 transition-colors duration-300">
+              <h3 style={{ fontFamily: 'var(--font-syne)' }} className="font-bold text-xl text-[#e1e8ed] mb-4">Connected Repos</h3>
+              {reposList.length === 0 ? (
+                <div className="text-center py-8">
+                  <GitBranch className="w-8 h-8 text-[#7da3c4] mx-auto mb-3" />
+                  <p className="text-sm text-[#7da3c4]">No repos connected</p>
+                  <Link href="/connect/callback" className="text-xs text-[#0ff] hover:text-[#0cf] transition-colors mt-2 inline-block font-semibold">
+                    Connect repository →
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {reposList.slice(0, 5).map((repo) => (
+                    <div
+                      key={repo.id}
+                      className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 hover:border-white/20 hover:bg-white/10 transition-all"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span
+                          className={cn(
+                            "w-2.5 h-2.5 rounded-full shrink-0",
+                            repo.status === "configured" ? "bg-[#10b981]" :
+                            repo.status === "pending" ? "bg-[#f59e0b]" : "bg-[#ef4444]"
+                          )}
+                        />
+                        <div className="min-w-0">
+                          <span className="text-sm font-medium text-[#e1e8ed] block truncate">
+                            {repo.fullName || `${repo.owner}/${repo.name}`}
+                          </span>
+                          {repo.stagingUrl && (
+                            <span className="text-xs text-[#7da3c4] block truncate">{repo.stagingUrl}</span>
+                          )}
+                        </div>
+                      </div>
+                      <span
+                        className={cn(
+                          "text-xs font-bold shrink-0 ml-2",
+                          repo.status === "configured" ? "text-[#10b981]" :
+                          repo.status === "pending" ? "text-[#f59e0b]" : "text-[#ef4444]"
+                        )}
+                      >
+                        {repo.status === "configured" ? "Active" : repo.status === "pending" ? "Pending" : "Error"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Quick Actions */}
+            <div className="rounded-2xl p-6 bg-white/5 border border-white/10 backdrop-blur-xl hover:border-white/20 transition-colors duration-300">
+              <h3 style={{ fontFamily: 'var(--font-syne)' }} className="font-bold text-xl text-[#e1e8ed] mb-4">Quick Actions</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={handleNewRunClick}
+                  className="p-6 rounded-xl bg-gradient-to-br from-[#0ff]/10 to-[#09f]/10 border border-white/10 hover:border-[#0ff]/50 hover:bg-gradient-to-br hover:from-[#0ff]/20 hover:to-[#09f]/20 transition-all flex flex-col items-center justify-center gap-2 text-[#0ff] group hover:shadow-lg hover:shadow-cyan-500/20"
+                >
+                  <PlusSquare className="w-6 h-6 group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-semibold">New Run</span>
+                </button>
+                <Link
+                  href="/runs"
+                  className="p-6 rounded-xl bg-gradient-to-br from-[#8b5cf6]/10 to-[#6366f1]/10 border border-white/10 hover:border-purple-500/50 hover:bg-gradient-to-br hover:from-[#8b5cf6]/20 hover:to-[#6366f1]/20 transition-all flex flex-col items-center justify-center gap-2 text-[#a78bfa] group hover:shadow-lg hover:shadow-purple-500/20"
+                >
+                  <Code className="w-6 h-6 group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-semibold">All Runs</span>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
       </main>
+
+      <Footer />
+
+      {/* Global styles */}
+      <style jsx global>{`
+        @keyframes draw {
+          to { stroke-dashoffset: var(--target-offset); }
+        }
+        input::placeholder {
+          color: rgb(125, 163, 196);
+        }
+      `}</style>
     </div>
   )
 }
