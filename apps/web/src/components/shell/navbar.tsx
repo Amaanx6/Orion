@@ -11,7 +11,7 @@ import {
   X,
 } from 'lucide-react'
 
-import { Button } from '../../components/ui/'
+import { Button } from '@/components/ui/button'
 
 export function Navbar() {
   const { theme, setTheme } = useTheme()
