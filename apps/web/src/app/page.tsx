@@ -213,7 +213,7 @@ function Footer() {
           Orion
         </div>
         <div className="text-sm text-[#6b7280] text-center">
-          © 2025 Orion Systems. Precision meets autonomy.
+          © 2026 Orion Systems. Precision meets autonomy.
         </div>
         <div className="flex gap-6">
           {["Privacy Policy", "Terms of Service", "Security", "Status"].map((link) => (
