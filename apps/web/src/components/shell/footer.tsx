@@ -64,7 +64,7 @@ export function Footer() {
         </div>
         <div className="border-t border-slate-700/50 pt-8">
           <p className="text-center text-sm text-slate-400">
-            &copy; 2024 Orion. All rights reserved.
+            &copy; 2026 Orion. All rights reserved.
           </p>
         </div>
       </div>
