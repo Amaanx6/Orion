@@ -274,7 +274,7 @@ function ConnectCallbackInner() {
                   >
                     {isSaving ? (
                       <>
-                        <div style={{ width: 14, height: 14, border: "2px solid rgba(255,255,255,0.4)", borderTopcolor: "var(--text-inverse)", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+                        <div style={{ width: 14, height: 14, border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "var(--text-inverse)", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
                         Setting up...
                       </>
                     ) : (

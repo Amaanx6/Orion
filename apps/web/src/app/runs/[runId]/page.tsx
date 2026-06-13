@@ -1,388 +1,513 @@
-"use client";
+'use client'
 
-import { useEffect, useState, useRef } from "react";
-import { useParams } from "next/navigation";
-import { motion } from "framer-motion";
-import { ArrowLeft, Target, ChevronRight } from "lucide-react";
+import { useState } from 'react'
+import Link from 'next/link'
 
-import { Run, AgentInfo, Finding, RunDiff } from "../../../types/orion";
-import { runsService } from "../../../services/runs.service";
-import { findingsService } from "../../../services/findings.service";
-import { agentsService } from "../../../services/agents.service";
-import { useRunSocket } from "../../../hooks/useRunSocket";
-import { usePolling } from "../../../hooks/usePolling";
+import { DashboardShell } from '../../../components/shell/dashboard-shell'
+import { Button } from '@/components/ui/button'
 
-import { FontStyle, StatusBadge } from "./_components/shared";
-import { ThemeToggle } from "../../_components/ThemeToggle";
-import { RunHero } from "./_components/RunHero";
-import { PipelineStepper } from "./_components/PipelineStepper";
-import { FindingsTable, SevFilter } from "./_components/FindingsTable";
-import { FindingsCharts } from "./_components/FindingsCharts";
-import { DiffPanel } from "./_components/DiffPanel";
-import { LiveLogFeed, LogEntry } from "./_components/LiveLogFeed";
-import { FindingDrawer } from "./_components/FindingDrawer";
+import { useRunDetail } from '../../../lib/hooks'
 
-export default function RunDetailPage() {
-  const { runId } = useParams<{ runId: string }>();
+import { ScoreRing } from '../../../components/status/score-ring'
+import {
+  StatusBadge,
+  SeverityBadge,
+} from '../../../components/status/status-badge'
 
-  // Core State
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'compare' | 'logs'>('dashboard');
-  const [run, setRun] = useState<Run | null>(null);
-  const [isLoadingRun, setIsLoadingRun] = useState(true);
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [diffData, setDiffData] = useState<RunDiff | null>(null);
-  const [compareId, setCompareId] = useState("");
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+import {
+  formatDate,
+  formatDuration,
+  truncate,
+} from '../../../lib/utils'
 
-  // Findings State
-  const [findings, setFindings] = useState<Finding[]>([]);
-  const [findingsTotal, setFindingsTotal] = useState(0);
-  const [findingsPage, setFindingsPage] = useState(1);
-  const [hasPrev, setHasPrev] = useState(false);
-  const [hasNext, setHasNext] = useState(false);
-  const [sevFilter, setSevFilter] = useState<SevFilter>("All");
+import {
+  Loader2,
+  AlertCircle,
+  ArrowLeft,
+  ExternalLink,
+  CheckCircle,
+  AlertTriangle,
+} from 'lucide-react'
 
-  // Drawer State
-  const [activeFinding, setActiveFinding] = useState<Finding | null>(null);
+interface Finding {
+  id: string
+  title: string
+  description: string
+  severity: 'critical' | 'high' | 'medium' | 'low'
+  location?: string
+  codeSnippet?: string
+  suggestedFix?: string
+  autoFixable?: boolean
+}
 
-  // Hooks
-  const isLive = run?.status === 'queued' || run?.status === 'running';
-  const { events, connected: wsConnected } = useRunSocket(runId, isLive);
-  const { status: polledStatus } = usePolling(runId, !wsConnected && isLive);
+interface PipelineStage {
+  name: string
+  status: 'completed' | 'running' | 'pending' | 'error'
+  duration?: number
+}
 
-  // 1. Initial Load (Run + Agents)
-  useEffect(() => {
-    setIsLoadingRun(true);
+interface RunDetail {
+  id: string
+  url: string
+  status: 'completed' | 'running' | 'failed'
+  mode: 'manual' | 'ci'
+  createdAt: string
+  duration?: number
+  score?: number
+  findings?: Finding[]
+  pipelineStages?: PipelineStage[]
+}
 
-    Promise.all([
-      runsService.getRunById(runId).catch(e => { console.error(e); return null; }),
-      agentsService.getRunAgents(runId).catch(e => { console.error(e); return []; })
-    ]).then(([rData, aData]) => {
-      setRun(rData);
-      setAgents(rData?.agentResults || (Array.isArray(aData) ? aData : []) || []);
+interface PageProps {
+  params: Promise<{ runId: string }>
+}
 
-      if (rData?.prevRunId) {
-        runsService.getRunDiff(rData.runId, { previousRunId: rData.prevRunId })
-          .then(setDiffData)
-          .catch(console.error);
-      }
-    }).finally(() => {
-      setIsLoadingRun(false);
-    });
-  }, [runId]);
+export default function RunDetailPage({
+  params,
+}: PageProps) {
+  const [runId, setRunId] = useState<string | null>(
+    null
+  )
 
-  // 2. Findings Load
-  useEffect(() => {
-    const fetchFindings = async () => {
-      try {
-        const params: any = { limit: 20, page: findingsPage };
-        if (sevFilter !== "All") params.severity = sevFilter.toLowerCase();
+  const [expandedFindings, setExpandedFindings] =
+    useState<Set<string>>(new Set())
 
-        const res = await findingsService.getRunFindings(runId, params);
-        setFindings(res.data || []);
-        setFindingsTotal(res.total || 0);
-        setHasPrev(res.hasPrev || false);
-        setHasNext(res.hasNext || false);
-      } catch (err) {
-        console.error("Failed fetching findings", err);
-      }
-    };
-    fetchFindings();
-  }, [runId, findingsPage, sevFilter]);
+  // Resolve params
+  if (!runId) {
+    params.then((p) => setRunId(p.runId))
+    return null
+  }
 
-  // 3. Socket Event Handling
-  const processedEventsCount = useRef(0);
+  const {
+    data: run,
+    isLoading,
+    error,
+    refetch,
+  } = useRunDetail(runId) as {
+    data: RunDetail | undefined
+    isLoading: boolean
+    error: any
+    refetch: () => void
+  }
 
-  useEffect(() => {
-    if (!events.length) return;
-    const newEvents = events.slice(processedEventsCount.current);
-    if (!newEvents.length) return;
-
-    newEvents.forEach(ev => {
-      const eventType = ev.type || ev.event;
-      if (eventType === 'agent_started' || eventType === 'node.started') {
-        const agentName = ev.agent || (ev.node ? ev.node.replace(/_agent$/, '') : '');
-        setAgents(prev => prev.map(a => (a.agent || a.type) === agentName ? { ...a, status: 'running' } : a));
-      }
-      else if (eventType === 'agent_completed' || eventType === 'node.complete') {
-        const agentName = ev.agent || (ev.node ? ev.node.replace(/_agent$/, '') : '');
-        setAgents(prev => prev.map(a =>
-          (a.agent || a.type) === agentName ? { ...a, status: 'complete', durationMs: ev.durationMs, score: ev.score } : a
-        ));
-      }
-      else if (eventType === 'node.failed') {
-        const agentName = (ev.node || '').replace(/_agent$/, '');
-        setAgents(prev => prev.map(a => (a.agent || a.type) === agentName ? { ...a, status: 'failed' } : a));
-      }
-      else if (eventType === 'score_updated') {
-        setRun(prev => prev ? { ...prev, overallScore: ev.meta?.score } : prev);
-
-        setAgents(prev => {
-          if (prev.filter(a => a.status === 'complete').length === 4) {
-            runsService.getRunById(runId).then(r => {
-              setRun(r);
-              if (r.prevRunId) runsService.getRunDiff(r.runId, { previousRunId: r.prevRunId }).then(setDiffData).catch(console.error);
-            });
-          }
-          return prev;
-        });
-      }
-      else if (eventType === 'log' || eventType === 'node.log') {
-        const entry: LogEntry = {
-          agent: ev.agent || (ev.node || '').replace(/_agent$/, ''),
-          message: ev.message || ev.text || '',
-          timestamp: new Date(ev.timestamp || Date.now()).getTime()
-        };
-        setLogs(prev => [...prev.slice(-199), entry]);
-      }
-      else if (eventType === 'finding.created') {
-        if (ev.finding) {
-          setFindings(prev => {
-            if (prev.find(f => f.id === ev.finding.id)) return prev;
-            return [...prev, ev.finding];
-          });
-        }
-      }
-      else if (eventType === 'run.started') {
-        setRun(prev => prev ? { ...prev, status: 'running' } : prev);
-      }
-      else if (eventType === 'run.complete' || eventType === 'run.failed') {
-        runsService.getRunById(runId).then(r => {
-          setRun(r);
-          if (r.prevRunId) runsService.getRunDiff(r.runId, { previousRunId: r.prevRunId }).then(setDiffData).catch(console.error);
-        });
-        agentsService.getRunAgents(runId).then(setAgents);
-      }
-    });
-
-    processedEventsCount.current = events.length;
-  }, [events, runId]);
-
-  // 4. Polling & Completion Flow
-  useEffect(() => {
-    if (polledStatus && polledStatus !== run?.status && (polledStatus === 'complete' || polledStatus === 'failed')) {
-      runsService.getRunById(runId).then(r => {
-        setRun(r);
-        if (r.prevRunId) runsService.getRunDiff(r.runId, { previousRunId: r.prevRunId }).then(setDiffData).catch(console.error);
-      });
-      agentsService.getRunAgents(runId).then(setAgents);
-    }
-  }, [polledStatus, run?.status, runId]);
-
-  useEffect(() => {
-    if (run?.status === 'complete' || run?.status === 'failed') {
-      runsService.getRunById(runId).then(r => {
-        setRun(prev => (prev?.status !== r.status || prev?.overallScore !== r.overallScore) ? r : prev);
-      });
-      agentsService.getRunAgents(runId).then(setAgents);
-    }
-  }, [run?.status, runId]);
-
-  // Action Handlers
-  const handleCancel = () => {
-    runsService.cancelRun(runId).then(() => {
-      setRun(prev => prev ? { ...prev, status: 'failed' } : prev);
-    }).catch(console.error);
-  };
-
-  const handleRowClick = (findingId: string) => {
-    findingsService.getFindingById(findingId)
-      .then(setActiveFinding)
-      .catch(console.error);
-  };
-
-  if (isLoadingRun) {
+  if (isLoading) {
     return (
-      <div className="min-h-screen bg-[var(--bg-body)] flex items-center justify-center font-semibold text-slate-500 text-sm">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-          Loading Run Profile...
+      <DashboardShell>
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
         </div>
-      </div>
-    );
+      </DashboardShell>
+    )
   }
 
-  if (!run) {
+  if (error || !run) {
     return (
-      <div className="min-h-screen bg-[var(--bg-body)] flex items-center justify-center font-semibold text-slate-500">
-        Run Profile {runId} not found.
-      </div>
-    );
+      <DashboardShell>
+        <div className="max-w-2xl mx-auto">
+          <Link
+            href="/runs"
+            className="inline-flex items-center gap-2 text-emerald-400 hover:text-emerald-300 mb-4"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Runs
+          </Link>
+
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-6">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+
+              <div>
+                <p className="font-medium text-red-300">
+                  Failed to load run details
+                </p>
+
+                <p className="text-sm text-red-200 mt-1">
+                  {(error as any)?.message ||
+                    'The run could not be found or accessed.'}
+                </p>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => refetch()}
+                  className="mt-4"
+                >
+                  Retry
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </DashboardShell>
+    )
   }
 
-  // isLive re-assigned natively from scope, used to conditionally display LiveLogFeed structurally
-  const localIsLive = run.status === 'queued' || run.status === 'running';
+  const toggleFinding = (id: string) => {
+    const newSet = new Set(expandedFindings)
+
+    if (newSet.has(id)) {
+      newSet.delete(id)
+    } else {
+      newSet.add(id)
+    }
+
+    setExpandedFindings(newSet)
+  }
+
+  const findings: Finding[] = run.findings || []
+
+  const criticalFindings = findings.filter(
+    (f: Finding) => f.severity === 'critical'
+  ).length
+
+  const highFindings = findings.filter(
+    (f: Finding) => f.severity === 'high'
+  ).length
 
   return (
-    <>
-      <FontStyle />
-      <div className="min-h-screen" style={{ background: "var(--bg-body)" }}>
-
-        <nav
-          className="sticky top-0 z-50 flex items-center justify-between px-6 md:px-12 py-3"
-          style={{
-            background: "var(--glass-bg)",
-            backdropFilter: "blur(18px)",
-            WebkitBackdropFilter: "blur(18px)",
-            borderBottom: "1px solid var(--border-subtle)",
-            height: 56,
-          }}
+    <DashboardShell>
+      <div className="max-w-4xl mx-auto space-y-8">
+        {/* Back Button */}
+        <Link
+          href="/runs"
+          className="inline-flex items-center gap-2 text-emerald-400 hover:text-emerald-300"
         >
-          <div className="flex items-center gap-6">
-            <motion.a
-              href="/runs"
-              className="flex items-center gap-2 text-sm font-medium transition-colors"
-              style={{ color: "var(--text-muted)", textDecoration: "none" }}
-              whileHover={{ color: "var(--primary-hover)" }}
-            >
-              <div
-                className="w-7 h-7 rounded-lg flex items-center justify-center"
-                style={{ background: "var(--primary-bg-alt)", border: "1px solid var(--primary-border)" }}
-              >
-                <ArrowLeft size={13} style={{ color: "var(--primary)" }} />
-              </div>
-              <span className="hidden sm:inline">All runs</span>
-            </motion.a>
+          <ArrowLeft className="h-4 w-4" />
+          Back to Runs
+        </Link>
 
-            <div style={{ width: 1, height: 20, background: "var(--border-muted)" }} />
-
-            <div className="flex items-center gap-2">
-              <div
-                className="w-7 h-7 rounded-lg flex items-center justify-center"
-                style={{ background: "var(--primary)" }}
-              >
-                <Target size={13} style={{ color: "var(--text-inverse)" }} />
-              </div>
-              <span className="bricolage font-bold text-lg tracking-tight" style={{ color: "var(--text-main)" }}>
-                Orion
+        {/* Header */}
+        <div className="space-y-6">
+          {/* URL + Meta */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-medium text-slate-400">
+                Audit:
               </span>
+
+              <a
+                href={run.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+              >
+                {truncate(run.url, 60)}
+
+                <ExternalLink className="h-4 w-4" />
+              </a>
             </div>
 
-            <div className="hidden md:flex items-center gap-1 text-xs" style={{ color: "var(--text-dim)" }}>
-              <ChevronRight size={13} />
-              <span className="font-medium" style={{ color: "var(--text-muted)" }}>Runs</span>
-              <ChevronRight size={13} />
-              <span
-                className="font-mono font-semibold px-1.5 py-0.5 rounded"
-                style={{ background: "var(--primary-bg-alt)", color: "var(--primary)", fontSize: 11 }}
-              >
-                {run.runId || run.id}
+            {/* Status */}
+            <div className="flex flex-wrap items-center gap-4">
+              <StatusBadge status={run.status} />
+
+              <span className="text-sm text-slate-400">
+                {run.mode === 'manual'
+                  ? 'Manual Audit'
+                  : 'CI Audit'}
               </span>
+
+              <span className="text-sm text-slate-500">
+                {formatDate(run.createdAt)}
+              </span>
+
+              {run.duration &&
+                run.status === 'completed' && (
+                  <span className="text-sm text-slate-500">
+                    Duration:{' '}
+                    {formatDuration(run.duration)}
+                  </span>
+                )}
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <ThemeToggle />
-            <StatusBadge status={run.status} />
-          </div>
-        </nav>
+          {/* Score Section */}
+          {run.status === 'completed' &&
+            run.score !== undefined && (
+              <div className="flex gap-8 items-center p-6 rounded-lg border border-slate-700/50 bg-slate-900/30">
+                <ScoreRing
+                  score={run.score}
+                  size={140}
+                  animated={true}
+                />
 
-        <RunHero run={run} onCancel={handleCancel} />
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-sm font-medium text-slate-400 mb-1">
+                      Overall Score
+                    </h3>
 
-        <div style={{ maxWidth: 1536, margin: "0 auto", padding: "32px 24px", display: "flex", flexDirection: "column", gap: 24 }}>
-          <PipelineStepper agents={agents} />
+                    <p className="text-2xl font-bold text-white">
+                      {Math.round(run.score)}/100
+                    </p>
+                  </div>
 
-          {/* Tab Navigation */}
-          <div className="flex items-center gap-8" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-            {[
-              { id: 'dashboard' as const, label: 'Overview' },
-              { id: 'compare' as const, label: 'Comparison' },
-              { id: 'logs' as const, label: 'Live Logs', badge: localIsLive }
-            ].map(t => (
-              <button
-                key={t.id}
-                onClick={() => setActiveTab(t.id)}
-                className="relative pb-3 text-sm font-bold transition-all outline-none"
-                style={{ color: activeTab === t.id ? "var(--text-main)" : "var(--text-muted)" }}
-              >
-                <div className="flex items-center gap-1.5">
-                  {t.label}
-                  {t.badge && (
-                    <span className="relative flex h-2 w-2 ml-0.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60" style={{ background: "#22C55E" }} />
-                      <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "#22C55E" }} />
-                    </span>
+                  <div>
+                    <h3 className="text-sm font-medium text-slate-400 mb-1">
+                      Result
+                    </h3>
+
+                    <p
+                      className={`font-semibold ${
+                        run.score >= 70
+                          ? 'text-green-400'
+                          : 'text-red-400'
+                      }`}
+                    >
+                      {run.score >= 70
+                        ? '✓ Passed'
+                        : '✗ Failed'}
+                    </p>
+                  </div>
+
+                  {findings.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-medium text-slate-400 mb-2">
+                        Issues Found
+                      </h3>
+
+                      <div className="space-y-1 text-sm">
+                        {criticalFindings > 0 && (
+                          <p className="text-red-400">
+                            <span className="font-bold">
+                              {criticalFindings}
+                            </span>{' '}
+                            Critical
+                          </p>
+                        )}
+
+                        {highFindings > 0 && (
+                          <p className="text-orange-400">
+                            <span className="font-bold">
+                              {highFindings}
+                            </span>{' '}
+                            High
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
-                {activeTab === t.id && (
-                  <motion.div
-                    layoutId="activeTabIndicator"
-                    className="absolute -bottom-[1px] left-0 right-0 h-0.5 rounded-t-full"
-                    style={{ background: "var(--primary)", zIndex: 10 }}
-                  />
-                )}
-              </button>
-            ))}
-          </div>
-
-          {/* Tab Contents */}
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-            className="w-full"
-          >
-            {activeTab === 'dashboard' && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                <div className="lg:col-span-8 flex flex-col gap-6 w-full">
-                  <FindingsTable
-                    findings={findings}
-                    totalFindings={findingsTotal}
-                    sevFilter={sevFilter}
-                    onSevFilterChange={setSevFilter}
-                    onRowClick={handleRowClick}
-                    page={findingsPage}
-                    hasNext={hasNext}
-                    hasPrev={hasPrev}
-                    onPageChange={setFindingsPage}
-                  />
-                </div>
-                <div className="lg:col-span-4 flex flex-col gap-6 w-full">
-                  <FindingsCharts findings={findings} agents={agents} run={run} />
-                </div>
               </div>
             )}
 
-            {activeTab === 'compare' && (
-              <div className="flex flex-col gap-6 w-full max-w-4xl">
-                <div
-                  className="flex items-center gap-3 p-2.5 rounded-2xl"
-                  style={{ background: "var(--glass-bg)", border: "1px solid var(--border-subtle)", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}
-                >
-                  <input
-                    type="text"
-                    value={compareId}
-                    onChange={(e) => setCompareId(e.target.value)}
-                    placeholder="Compare with specific Run ID..."
-                    className="flex-1 px-3 py-2 text-sm font-semibold outline-none bg-transparent"
-                    style={{ color: "var(--text-main)" }}
-                  />
-                  <button
-                    onClick={() => { if (compareId) runsService.getRunDiff(runId, { compareWith: compareId }).then(setDiffData).catch(console.error); }}
-                    className="px-5 py-2 text-sm font-bold transition-opacity hover:opacity-90 active:scale-95 rounded-xl shrink-0"
-                    style={{ color: "var(--text-inverse)", background: "var(--primary)", boxShadow: "0 2px 10px rgba(37,99,235,0.25)" }}
-                  >
-                    Compare Run
-                  </button>
+          {/* Running State */}
+          {run.status === 'running' && (
+            <div className="p-6 rounded-lg border border-blue-500/30 bg-blue-500/10">
+              <div className="flex items-center gap-3">
+                <Loader2 className="h-5 w-5 text-blue-400 animate-spin" />
+
+                <div>
+                  <p className="font-medium text-blue-300">
+                    Audit in progress...
+                  </p>
+
+                  <p className="text-sm text-blue-200">
+                    Results will appear as they arrive
+                  </p>
                 </div>
-
-                {diffData && <DiffPanel diff={diffData} />}
               </div>
-            )}
-
-            {activeTab === 'logs' && (
-              <div className="h-[500px]">
-                <LiveLogFeed logs={logs} />
-              </div>
-            )}
-          </motion.div>
-
-          <div style={{ height: 32 }} />
+            </div>
+          )}
         </div>
-      </div>
 
-      <FindingDrawer finding={activeFinding} onClose={() => setActiveFinding(null)} />
-    </>
-  );
+        {/* Pipeline Stages */}
+        {run.pipelineStages &&
+          run.pipelineStages.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-white">
+                Pipeline Progress
+              </h2>
+
+              <div className="space-y-3">
+                {run.pipelineStages.map(
+                  (
+                    stage: PipelineStage,
+                    i: number
+                  ) => (
+                    <div
+                      key={i}
+                      className="p-4 rounded-lg border border-slate-700/50 bg-slate-900/30"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {stage.status ===
+                            'completed' && (
+                            <CheckCircle className="h-5 w-5 text-green-400" />
+                          )}
+
+                          {stage.status ===
+                            'running' && (
+                            <Loader2 className="h-5 w-5 text-blue-400 animate-spin" />
+                          )}
+
+                          {stage.status ===
+                            'pending' && (
+                            <div className="h-5 w-5 rounded-full border-2 border-slate-600" />
+                          )}
+
+                          {stage.status === 'error' && (
+                            <AlertTriangle className="h-5 w-5 text-red-400" />
+                          )}
+
+                          <div>
+                            <h3 className="font-medium text-white">
+                              {stage.name}
+                            </h3>
+
+                            {stage.duration && (
+                              <p className="text-xs text-slate-500">
+                                {formatDuration(
+                                  stage.duration
+                                )}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <span className="text-xs text-slate-500 capitalize">
+                          {stage.status}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          )}
+
+        {/* Findings */}
+        {findings.length > 0 ? (
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold text-white">
+              Issues Found ({findings.length})
+            </h2>
+
+            <div className="space-y-3">
+              {findings.map(
+                (finding: Finding) => (
+                  <div
+                    key={finding.id}
+                    className="rounded-lg border border-slate-700/50 bg-slate-900/30 overflow-hidden"
+                  >
+                    <button
+                      onClick={() =>
+                        toggleFinding(finding.id)
+                      }
+                      className="w-full p-4 hover:bg-slate-900/50 transition-colors text-left flex items-start justify-between gap-4"
+                    >
+                      <div className="flex-1 space-y-2">
+                        <div className="flex items-center gap-3">
+                          <SeverityBadge
+                            severity={
+                              finding.severity
+                            }
+                          />
+
+                          <h3 className="font-medium text-white">
+                            {finding.title}
+                          </h3>
+                        </div>
+
+                        <p className="text-sm text-slate-400">
+                          {truncate(
+                            finding.description,
+                            100
+                          )}
+                        </p>
+
+                        {finding.location && (
+                          <p className="text-xs text-slate-500 font-mono">
+                            {finding.location}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex-shrink-0">
+                        {finding.autoFixable && (
+                          <span className="inline-block px-2 py-1 rounded text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                            Auto-fixable
+                          </span>
+                        )}
+                      </div>
+                    </button>
+
+                    {/* Expanded */}
+                    {expandedFindings.has(
+                      finding.id
+                    ) && (
+                      <div className="border-t border-slate-700/50 p-4 bg-slate-900/50 space-y-4">
+                        <div>
+                          <h4 className="text-sm font-medium text-slate-300 mb-2">
+                            Description
+                          </h4>
+
+                          <p className="text-sm text-slate-400">
+                            {finding.description}
+                          </p>
+                        </div>
+
+                        {finding.codeSnippet && (
+                          <div>
+                            <h4 className="text-sm font-medium text-slate-300 mb-2">
+                              Code
+                            </h4>
+
+                            <pre className="p-3 rounded bg-slate-900 text-xs text-slate-400 overflow-x-auto border border-slate-700/50">
+                              <code>
+                                {
+                                  finding.codeSnippet
+                                }
+                              </code>
+                            </pre>
+                          </div>
+                        )}
+
+                        {finding.suggestedFix && (
+                          <div>
+                            <h4 className="text-sm font-medium text-slate-300 mb-2">
+                              Suggested Fix
+                            </h4>
+
+                            <p className="text-sm text-slate-400">
+                              {
+                                finding.suggestedFix
+                              }
+                            </p>
+                          </div>
+                        )}
+
+                        {finding.autoFixable && (
+                          <div className="pt-2">
+                            <Button
+                              size="sm"
+                              className="bg-emerald-500 hover:bg-emerald-600 text-white"
+                            >
+                              Create Fix PR
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+        ) : run.status === 'completed' ? (
+          <div className="text-center py-12 rounded-lg border border-emerald-500/30 bg-emerald-500/10">
+            <CheckCircle className="h-12 w-12 text-emerald-400 mx-auto mb-4" />
+
+            <h3 className="text-lg font-semibold text-white mb-2">
+              No issues found!
+            </h3>
+
+            <p className="text-emerald-300">
+              Your website passes all audits.
+            </p>
+          </div>
+        ) : null}
+      </div>
+    </DashboardShell>
+  )
 }
