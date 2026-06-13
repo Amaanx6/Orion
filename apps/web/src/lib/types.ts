@@ -52,6 +52,9 @@ export interface Run {
 }
 
 export interface ConnectedRepo {
+  description: ReactNode
+  lastChecked: any
+  url: import("react").JSX.Element
   id: string
   name: string
   owner: string
