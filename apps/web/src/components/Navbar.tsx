@@ -50,14 +50,14 @@ export function Navbar() {
 
       <div className="flex items-center gap-3">
         <a
-          href="https://github.com/settings/installations/119828065"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hidden sm:inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] text-white rounded-lg hover:shadow-lg hover:shadow-blue-500/30 transition-all hover:-translate-y-0.5"
-        >
-          <GitBranch className="w-4 h-4" />
-          Connect GitHub
-        </a>
+  href={process.env.NEXT_PUBLIC_GITHUB_APP_URL || "https://github.com/apps/orion-ai/installations/new"}
+  target="_blank"
+  rel="noopener noreferrer"
+  className="hidden sm:inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] text-white rounded-lg hover:shadow-lg hover:shadow-blue-500/30 transition-all hover:-translate-y-0.5"
+>
+  <GitBranch className="w-4 h-4" />
+  Connect GitHub
+</a>
 
         <button className="lg:hidden p-2 rounded-lg hover:bg-blue-50 transition-all">
           <svg className="w-5 h-5 text-[#6b7280]" fill="none" stroke="currentColor" viewBox="0 0 24 24">

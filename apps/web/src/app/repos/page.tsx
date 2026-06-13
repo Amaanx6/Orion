@@ -198,14 +198,14 @@ export default function ReposPage() {
             >
               <p className="text-[#6b7280] mb-4">Want to connect more repositories?</p>
               <a
-  href="https://github.com/settings/installations/119828065"
+  href={process.env.NEXT_PUBLIC_GITHUB_APP_URL || "https://github.com/apps/orion-ai/installations/new"}
   target="_blank"
   rel="noopener noreferrer"
   className="..."
 >
-                <GitBranch className="w-4 h-4" />
-                Connect Another Repo
-              </a>
+  <GitBranch className="w-4 h-4" />
+  Connect Another Repo
+</a>
             </motion.div>
           </motion.div>
         )}

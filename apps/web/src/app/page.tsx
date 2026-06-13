@@ -610,13 +610,13 @@ export default function DashboardPage() {
                   <GitBranch className="w-8 h-8 text-[#9ca3af] mx-auto mb-3" />
                   <p className="text-sm text-[#6b7280]">No repos connected</p>
                   <a
-  href="https://github.com/settings/installations/119828065"
-  target="_blank"
-  rel="noopener noreferrer"
-  className="text-xs text-[#2563eb] hover:text-[#1d4ed8] transition-colors mt-2 inline-block font-semibold"
->
-  Connect repository →
-</a>
+                    href={process.env.NEXT_PUBLIC_GITHUB_APP_URL || "https://github.com/apps/orion-ai/installations/new"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                   className="text-xs text-[#2563eb] hover:text-[#1d4ed8] transition-colors mt-2 inline-block font-semibold"
+                  >
+                    Connect repository →
+                  </a>
                 </div>
               ) : (
                 <div className="space-y-3">
