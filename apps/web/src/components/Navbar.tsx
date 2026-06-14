@@ -172,7 +172,15 @@ export function Navbar() {
 
   const { data: notificationsData } = useQuery({
     queryKey: ['notifications'],
-    queryFn: () => api.get<{ success: boolean; data: Notification[] }>('/notifications').then((res) => res.data.data),
+    queryFn: async () => {
+      try {
+        const res = await api.get<Notification[]>('/notifications')
+        // Axios interceptor already unwraps { success, data } envelope → res.data is Notification[]
+        return (res.data as Notification[]) ?? []
+      } catch {
+        return []
+      }
+    },
     refetchInterval: 30000,
     staleTime: 10000,
   })

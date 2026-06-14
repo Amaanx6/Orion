@@ -5,7 +5,7 @@ import path from "path";
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
-function getOctokit(installationId: string): Octokit {
+export function getOctokit(installationId: string): Octokit {
   const privateKey = fs.readFileSync(
     path.resolve(process.env.GITHUB_PRIVATE_KEY_PATH!),
     "utf-8"

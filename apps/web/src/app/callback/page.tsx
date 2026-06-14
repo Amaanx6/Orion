@@ -1,7 +1,6 @@
-//callback/page.tsx
-'use client'
+"use client"
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { DashboardShell } from '../../components/shell/dashboard-shell'
 import { Button } from '@/components/ui/button'
@@ -18,7 +17,7 @@ type Repository = {
   name: string
 }
 
-export default function CallbackPage() {
+function CallbackPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -190,5 +189,27 @@ export default function CallbackPage() {
         </div>
       </div>
     </DashboardShell>
+  )
+}
+
+export default function CallbackPage() {
+  return (
+    <Suspense fallback={
+      <DashboardShell>
+        <div className="max-w-2xl mx-auto py-16">
+          <div className="space-y-8 text-center">
+            <div className="flex justify-center">
+              <Loader2 className="h-12 w-12 animate-spin text-emerald-500" />
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-2xl font-bold text-white">Installing Orion</h1>
+              <p className="text-slate-400">Loading installation details...</p>
+            </div>
+          </div>
+        </div>
+      </DashboardShell>
+    }>
+      <CallbackPageContent />
+    </Suspense>
   )
 }

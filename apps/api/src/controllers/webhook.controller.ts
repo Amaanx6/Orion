@@ -17,6 +17,7 @@ import {
   postPRComment,
   postInlineComments,
 } from "../services/github.service";
+import { runPRCodeReview } from "../services/pr-review.service";
 
 // ─── Verify GitHub Signature ──────────────────────────────────────────────────
 // req.body is a raw Buffer here (express.raw middleware in app.ts).
@@ -123,108 +124,124 @@ export const handleGithubWebhook = async (
 
     console.log(`[webhook] PR #${prNumber} ${payload.action} on ${owner}/${repo} @ ${sha}`);
 
-    // Look up staging URL from DB
+    // Look up staging URL and other repo info from DB
     const connected = await db.query.connectedRepos.findFirst({
       where: eq(connectedRepos.repo, repo),
     });
 
-    if (!connected?.stagingUrl) {
-      console.warn(`[webhook] no staging URL configured for ${owner}/${repo} — skipping run`);
-      res.status(200).json({ success: true, skipped: true, reason: "no staging URL" });
+    if (!connected) {
+      console.warn(`[webhook] repository ${owner}/${repo} is not connected — skipping review`);
+      res.status(200).json({ success: true, skipped: true, reason: "not connected" });
       return;
     }
 
-    const runId = `run_${nanoid(6)}`;
+    // Always run PR code review in the background
+    runPRCodeReview({
+      owner,
+      repo,
+      prNumber,
+      sha,
+      installationId,
+    }).catch((err) => {
+      console.error(`[webhook] PR review for PR #${prNumber} failed:`, err);
+    });
 
-    // Insert run into DB
-    const [newRun] = await db
-      .insert(runs)
-      .values({
-        runId,
-        url: connected.stagingUrl,
-        mode: "ci",
-        status: "queued",
-        ciContext: {
-          pr: prNumber,
-          sha,
-          branch,
-          repo,
-          owner,
-        },
-      })
-      .returning();
+    // If staging URL is configured, also run the full site audit
+    if (connected.stagingUrl) {
+      const runId = `run_${nanoid(6)}`;
 
-    console.log(`[webhook] created run ${runId} for ${connected.stagingUrl}`);
-
-    // Post pending status immediately so the PR shows a check right away
-    await postPendingStatus(owner, repo, sha, installationId);
-
-    // Respond to GitHub immediately — do NOT await the agents
-    // GitHub expects a response within 10 seconds or it marks the delivery failed
-    res.status(200).json({ success: true, runId });
-
-    // Run agents in background
-    runAgents(newRun!.runId, newRun!.id, connected.stagingUrl, "ci")
-      .then(async () => {
-        // Fetch completed run
-        const run = await db.query.runs.findFirst({
-          where: eq(runs.runId, runId),
-        });
-
-        const score = run?.overallScore ?? 0;
-        const passed = run?.passed ?? false;
-
-        // Fetch findings
-        const runFindings = run
-          ? await db.query.findings.findMany({
-              where: eq(findings.runId, run.id),
-            })
-          : [];
-
-        const findingsCount = runFindings.length;
-
-        // Fetch rootCause from scoring agent result
-        let rootCause: string | undefined;
-        if (run) {
-          const scoringResult = await db.query.agentResults.findFirst({
-            where: and(
-              eq(agentResults.runId, run.id),
-              eq(agentResults.agent, "scoring")
-            ),
-          });
-          const data = scoringResult?.data as { rootCause?: string } | null;
-          rootCause = data?.rootCause ?? undefined;
-        }
-
-        // Post results back to GitHub
-        await postCompletedStatus(owner, repo, sha, installationId, score, passed, runId);
-        await postPRComment(owner, repo, prNumber, installationId, score, passed, runId, findingsCount, rootCause);
-
-        if (runFindings.length > 0) {
-          await postInlineComments(
-            owner,
-            repo,
-            prNumber,
-            installationId,
+      // Insert run into DB
+      const [newRun] = await db
+        .insert(runs)
+        .values({
+          runId,
+          url: connected.stagingUrl,
+          mode: "ci",
+          status: "queued",
+          ciContext: {
+            pr: prNumber,
             sha,
-            runFindings.map((f) => ({
-              ...f,
-              file: f.file ?? undefined,
-              line: f.line ?? undefined,
-              fixSuggestion: f.fixSuggestion ?? undefined,
-              nodeId: f.nodeId ?? undefined,
-            }))
-          );
-        }
+            branch,
+            repo,
+            owner,
+          },
+        })
+        .returning();
 
-        console.log(`[webhook] run ${runId} complete — score: ${score}/100, passed: ${passed}`);
-      })
-      .catch(async (err) => {
-        console.error(`[webhook] run ${runId} failed:`, err);
-        // Post failure status so the PR check doesn't hang on pending
-        await postCompletedStatus(owner, repo, sha, installationId, 0, false, runId);
-      });
+      console.log(`[webhook] created run ${runId} for ${connected.stagingUrl}`);
 
+      // Post pending status immediately so the PR shows a check right away
+      await postPendingStatus(owner, repo, sha, installationId);
+
+      // Respond to GitHub immediately — do NOT await the agents
+      // GitHub expects a response within 10 seconds or it marks the delivery failed
+      res.status(200).json({ success: true, runId, prReviewTriggered: true });
+
+      // Run agents in background
+      runAgents(newRun!.runId, newRun!.id, connected.stagingUrl, "ci")
+        .then(async () => {
+          // Fetch completed run
+          const run = await db.query.runs.findFirst({
+            where: eq(runs.runId, runId),
+          });
+
+          const score = run?.overallScore ?? 0;
+          const passed = run?.passed ?? false;
+
+          // Fetch findings
+          const runFindings = run
+            ? await db.query.findings.findMany({
+                where: eq(findings.runId, run.id),
+              })
+            : [];
+
+          const findingsCount = runFindings.length;
+
+          // Fetch rootCause from scoring agent result
+          let rootCause: string | undefined;
+          if (run) {
+            const scoringResult = await db.query.agentResults.findFirst({
+              where: and(
+                eq(agentResults.runId, run.id),
+                eq(agentResults.agent, "scoring")
+              ),
+            });
+            const data = scoringResult?.data as { rootCause?: string } | null;
+            rootCause = data?.rootCause ?? undefined;
+          }
+
+          // Post results back to GitHub
+          await postCompletedStatus(owner, repo, sha, installationId, score, passed, runId);
+          await postPRComment(owner, repo, prNumber, installationId, score, passed, runId, findingsCount, rootCause);
+
+          if (runFindings.length > 0) {
+            await postInlineComments(
+              owner,
+              repo,
+              prNumber,
+              installationId,
+              sha,
+              runFindings.map((f) => ({
+                ...f,
+                file: f.file ?? undefined,
+                line: f.line ?? undefined,
+                fixSuggestion: f.fixSuggestion ?? undefined,
+                nodeId: f.nodeId ?? undefined,
+              }))
+            );
+          }
+
+          console.log(`[webhook] run ${runId} complete — score: ${score}/100, passed: ${passed}`);
+        })
+        .catch(async (err) => {
+          console.error(`[webhook] run ${runId} failed:`, err);
+          // Post failure status so the PR check doesn't hang on pending
+          await postCompletedStatus(owner, repo, sha, installationId, 0, false, runId);
+        });
+    } else {
+      console.log(`[webhook] no staging URL configured for ${owner}/${repo} — skipped site audit`);
+      res.status(200).json({ success: true, prReviewTriggered: true });
+    }
     return;
   }
 

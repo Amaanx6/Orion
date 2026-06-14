@@ -175,3 +175,45 @@ export const connectedRepos = pgTable("connected_repos", {
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+//
+// PR REVIEWS
+//
+
+export const prReviews = pgTable("pr_reviews", {
+  id: uuid("id").primaryKey().defaultRandom(),
+
+  // GitHub context
+  owner: text("owner").notNull(),
+  repo: text("repo").notNull(),
+  prNumber: integer("pr_number").notNull(),
+  sha: text("sha").notNull(),
+  installationId: text("installation_id").notNull(),
+
+  // Review lifecycle
+  status: text("status").notNull().default("pending"), // "pending" | "complete" | "failed"
+
+  // LLM output
+  summary: text("summary"),
+  commentUrl: text("comment_url"),     // URL of the GitHub comment posted
+
+  // Per-file findings stored as JSON array
+  findings: jsonb("findings").$type<
+    {
+      file: string;
+      severity: "critical" | "high" | "medium" | "low" | "info";
+      title: string;
+      detail: string;
+      line?: number;
+      fixSuggestion?: string;
+      confidence: "high" | "medium" | "low";
+    }[]
+  >(),
+
+  // Counts for quick access
+  totalFiles: integer("total_files"),
+  totalFindings: integer("total_findings"),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});

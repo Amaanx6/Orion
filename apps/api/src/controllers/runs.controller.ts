@@ -198,16 +198,19 @@ export const listRuns = async (req: Request, res: Response): Promise<void> => {
 // ─── GET /runs/:runId ─────────────────────────────────────────────────────────
 
 export const getRun = async (req: Request, res: Response): Promise<void> => {
-  const runId = String(req.params["runId"]);
+  const param = String(req.params["runId"]);
+
+  // Detect whether the caller passed a UUID or a slug (run_XXXX)
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(param);
 
   const [run] = await db
     .select()
     .from(runs)
-    .where(eq(runs.runId, runId))
+    .where(isUUID ? eq(runs.id, param) : eq(runs.runId, param))
     .limit(1);
 
   if (!run) {
-    fail(res, "RUN_NOT_FOUND", `No run found with ID '${runId}'.`, 404);
+    fail(res, "RUN_NOT_FOUND", `No run found with ID '${param}'.`, 404);
     return;
   }
 
@@ -248,7 +251,8 @@ export const getRun = async (req: Request, res: Response): Promise<void> => {
 };
 
 export const getRunStatus = async (req: Request, res: Response): Promise<void> => {
-  const runId = String(req.params["runId"]);
+  const param = String(req.params["runId"]);
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(param);
 
   const [run] = await db
     .select({
@@ -260,11 +264,11 @@ export const getRunStatus = async (req: Request, res: Response): Promise<void> =
       completedAt: runs.completedAt,
     })
     .from(runs)
-    .where(eq(runs.runId, runId))
+    .where(isUUID ? eq(runs.id, param) : eq(runs.runId, param))
     .limit(1);
 
   if (!run) {
-    fail(res, "RUN_NOT_FOUND", `No run found with ID '${runId}'.`, 404);
+    fail(res, "RUN_NOT_FOUND", `No run found with ID '${param}'.`, 404);
     return;
   }
 

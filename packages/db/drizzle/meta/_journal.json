@@ -15,6 +15,13 @@
       "when": 1774709845022,
       "tag": "0001_chemical_speed",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781415138934,
+      "tag": "0002_uneven_trauma",
+      "breakpoints": true
     }
   ]
 }
