@@ -10,17 +10,28 @@ import cors from "cors";
 
 const app: Express = express();
 
-app.use(express.json());
 app.use(cors());
+
+// ── Webhook MUST come before express.json() ───────────────────────────────────
+// GitHub signs the raw request body bytes. If express.json() runs first it
+// parses the body into an object and JSON.stringify() of that object won't
+// match the original bytes → every signature check fails with 401.
+app.use(
+  "/api/v1/github/webhook",
+  express.raw({ type: "application/json" }),
+  webhookRoutes
+);
+
+// ── All other routes get normal JSON parsing ──────────────────────────────────
+app.use(express.json());
 
 app.use("/health", healthRoutes);
 app.use("/api/v1/runs", runsRoutes);
 app.use("/api/v1/findings", findingsRoutes);
-app.use("/api/v1/webhooks", webhookRoutes);
 app.use("/api/v1/notifications", notificationsRoutes);
 
-// ── These must be registered BEFORE the repos router ──
-app.get("/api/v1/repos/connect",  connectRepo);
+// These must be registered BEFORE the repos router
+app.get("/api/v1/repos/connect", connectRepo);
 app.get("/api/v1/repos/callback", repoCallback);
 
 app.use("/api/v1/repos", repoRoutes);
