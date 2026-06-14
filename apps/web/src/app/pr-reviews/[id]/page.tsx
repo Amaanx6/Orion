@@ -13,8 +13,7 @@ import {
   ExternalLink,
   CheckCircle,
   ChevronDown,
-  GitPullRequest,
-  Github
+  GitPullRequest
 } from 'lucide-react'
 
 interface PageProps {
@@ -156,7 +155,7 @@ export default function PRReviewDetailPage({ params }: PageProps) {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-4 py-2 bg-[#24292F] text-white text-sm font-semibold rounded-lg hover:bg-[#24292F]/90 transition-colors"
             >
-              <Github className="w-4 h-4" />
+              <ExternalLink className="w-4 h-4" />
               View Comment on GitHub
             </a>
           )}
