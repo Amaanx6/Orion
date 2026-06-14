@@ -12,7 +12,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
     <span
       className={`inline-block px-3 py-1 rounded-md text-sm font-medium border ${getStatusColor(status)} ${className}`}
     >
-      {status.charAt(0).toUpperCase() + status.slice(1)}
+      {status ? status.charAt(0).toUpperCase() + status.slice(1) : ''}
     </span>
   )
 }
@@ -27,7 +27,7 @@ export function SeverityBadge({ severity, className }: SeverityBadgeProps) {
     <span
       className={`inline-block px-3 py-1 rounded-md text-sm font-medium border ${getSeverityColor(severity)} ${className}`}
     >
-      {severity.charAt(0).toUpperCase() + severity.slice(1)}
+      {severity ? severity.charAt(0).toUpperCase() + severity.slice(1) : ''}
     </span>
   )
 }

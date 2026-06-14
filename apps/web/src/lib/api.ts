@@ -25,6 +25,37 @@ const axiosInstance: AxiosInstance = axios.create({
   },
 })
 
+// Unpack the standard { success, data, pagination } server envelope
+axiosInstance.interceptors.response.use(
+  (response) => {
+    const payload = response.data
+    if (payload && typeof payload === 'object' && 'success' in payload) {
+      if (payload.success === false) {
+        const errorMsg = payload.error?.message || 'API error'
+        const errorStatus = payload.error?.statusCode || response.status
+        const errorCode = payload.error?.code
+        const err = new Error(errorMsg) as any
+        err.status = errorStatus
+        err.code = errorCode
+        throw err
+      }
+      
+      if (payload.pagination) {
+        response.data = {
+          data: payload.data,
+          ...payload.pagination,
+        }
+      } else {
+        response.data = payload.data
+      }
+    }
+    return response
+  },
+  (error) => {
+    return Promise.reject(error)
+  }
+)
+
 // Error handling
 export class ApiError extends Error {
   constructor(
@@ -227,7 +258,11 @@ export const healthApi = {
 function handleApiError(error: any): ApiError {
   if (axios.isAxiosError(error)) {
     const status = error.response?.status || 500
-    let message = error.response?.data?.message || error.message
+    const responseData = error.response?.data as any
+    let message =
+      responseData?.error?.message ||
+      responseData?.message ||
+      error.message
 
     if (status === 404) {
       message = 'Resource not found. It may have been deleted.'
@@ -235,7 +270,7 @@ function handleApiError(error: any): ApiError {
       message = 'Unauthorized. Please check your session.'
     } else if (status === 422) {
       message =
-        error.response?.data?.details || 'Invalid input. Please check your data.'
+        responseData?.details || 'Invalid input. Please check your data.'
     } else if (status >= 500) {
       message = 'Server error. Please try again later.'
     } else if (!error.response) {

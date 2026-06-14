@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, use } from 'react'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { Navbar } from '@/components/Navbar'
@@ -185,20 +185,9 @@ function PipelineStepper({ stages }: { stages: PipelineStage[] }) {
 // Main Run Detail Page
 // ──────────────────────────────────────────────────────────
 export default function RunDetailPage({ params }: PageProps) {
-  const [runId, setRunId] = useState<string | null>(null)
+  const resolvedParams = use(params)
+  const runId = resolvedParams.runId
   const [expandedFindings, setExpandedFindings] = useState<Set<string>>(new Set())
-
-  if (!runId) {
-    params.then((p) => setRunId(p.runId))
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-[#ffffff] via-[#f8f9fb] to-[#f0f3f8]">
-        <Navbar />
-        <div className="flex items-center justify-center py-32">
-          <div className="w-10 h-10 border-4 border-blue-100 border-t-[#2563eb] rounded-full animate-spin" />
-        </div>
-      </div>
-    )
-  }
 
   const {
     data: run,
